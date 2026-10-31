@@ -56,6 +56,8 @@ public:
     /// so it can read the wake notification and resume.
     void setSleeping(bool s) { m_sleeping = s; }
     bool sleeping() const    { return m_sleeping; }
+    // Present the next frames at full rate even without input (idle throttle off).
+    void requestFullRate()   { m_fullRateRequested = true; }
 
 private:
     void dispatchInput();
@@ -70,6 +72,7 @@ private:
     bool m_running = true;
     bool m_renderEnabled = true;
     bool m_sleeping = false;
+    bool m_fullRateRequested = false;
     uint64_t m_navHeldMask = 0;
     int m_navHeldFrames = 0;
     int m_navRepeatCountdown = 0;

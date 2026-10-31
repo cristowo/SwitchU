@@ -51,7 +51,8 @@
       "game_launchable": "A pour lancer. Plus pour les options. Y grec pour déplacer. ZL ou ZR pour changer de page.",
       "game_blocked": "A pour afficher la raison du blocage. Plus pour les options.",
       "widget": "Plus pour les options du widget. Y grec pour déplacer. Moins pour changer de vue.",
-      "recently_played_widget": "A pour lancer le jeu récent. Plus pour les options du widget. Y grec pour déplacer."
+      "recently_played_widget": "A pour lancer le jeu récent. Plus pour les options du widget. Y grec pour déplacer.",
+      "now_playing_widget": "A pour lire ou mettre en pause. Plus pour suivant, précédent, la source de musique et les options du widget. Y grec pour déplacer."
     },
     "actions": {
       "edit_mode": "Croix directionnelle pour choisir la nouvelle position. A pour placer ou entrer dans un dossier. B pour annuler.",
@@ -400,7 +401,9 @@
       "media_sleep": "Veille pendant les médias",
       "media_sleep_desc": "Permet la mise en veille automatique pendant la lecture de médias.",
       "wake_power": "Réveil au changement d'alimentation",
-      "wake_power_desc": "Réveille la console quand l'adaptateur secteur est connecté ou déconnecté."
+      "wake_power_desc": "Réveille la console quand l'adaptateur secteur est connecté ou déconnecté.",
+      "lock_screen": "Écran de verrouillage",
+      "lock_screen_desc": "Affiche l'écran de verrouillage au réveil de la console."
     },
     "theme": {
       "preset": "Preset",
@@ -515,6 +518,7 @@
     "close_title": "Fermer le jeu",
     "close_prefix": "Fermer",
     "close_suffix": " ?\nLa progression non sauvegardée sera perdue.",
+    "replace_message": "Le logiciel actuellement suspendu sera fermé.\nLa progression non sauvegardée sera perdue.",
     "steamgriddb": {
       "hero": "Hero",
       "hero_desc": "Ouvre la galerie des heroes pour choisir l'image à utiliser.",
@@ -596,7 +600,15 @@
     "error_title": "Erreur de widget",
     "save_error": "La modification du widget n’a pas pu être enregistrée.",
     "no_assets_title": "Aucune image de widget",
-    "no_assets_desc": "Ajoutez des fichiers PNG, JPG, WebP ou GIF dans sdmc:/config/SwitchU/widgets/assets/ ou dans le dossier widgets du thème actif."
+    "no_assets_desc": "Ajoutez des fichiers PNG, JPG, WebP ou GIF dans sdmc:/config/SwitchU/widgets/assets/ ou dans le dossier widgets du thème actif.",
+    "now_playing": "En cours de lecture",
+    "playing": "En lecture",
+    "paused": "En pause",
+    "next": "Titre suivant",
+    "previous": "Titre précédent",
+    "switch_to_spotify": "Passer à Spotify",
+    "switch_to_songs": "Passer aux morceaux",
+    "play_pause": "Lecture/Pause"
   },
   "controller_test": {
     "title": "Test des manettes",
@@ -847,6 +859,41 @@
     "power_off": "Éteindre",
     "hint_adjust": "Ajuster",
     "hint_shortcut": "Paramètres rapides",
-    "music_idle": "Aucune lecture"
+    "music_idle": "Aucune lecture",
+    "source_local": "Morceaux",
+    "source_spotify": "Spotify"
+  },
+  "lockscreen": {
+    "hint": "Appuyez trois fois sur le même bouton.",
+    "sunday": "Dimanche",
+    "monday": "Lundi",
+    "tuesday": "Mardi",
+    "wednesday": "Mercredi",
+    "thursday": "Jeudi",
+    "friday": "Vendredi",
+    "saturday": "Samedi"
+  },
+  "switify": {
+    "not_installed": "Switify n'est pas installé",
+    "not_installed_desc": "Installez l'overlay Switify et son service en arrière-plan pour écouter Spotify ici.",
+    "not_running": "Switify n'est pas lancé",
+    "press_play": "Appuyez sur Lecture pour le lancer",
+    "press_a": "Appuyez sur A pour le lancer",
+    "starting": "Lancement de Switify...",
+    "sign_in": "Connectez-vous avec l'application Switify",
+    "sign_in_desc": "Ouvrez l'application Switify une fois et connectez-vous à Spotify. Le service en arrière-plan réutilise cette session.",
+    "connecting": "Connexion...",
+    "nothing": "Aucune lecture",
+    "start_title": "Lancer Switify ?",
+    "start_desc": "Le service en arrière-plan de Switify va démarrer et continuer à lire Spotify pendant que vous jouez. Vous pouvez l'arrêter depuis l'overlay Switify.",
+    "start": "Lancer",
+    "queue": "File d'attente",
+    "current_playlist": "Playlist en cours",
+    "library": "Bibliothèque",
+    "home": "Accueil",
+    "search": "Rechercher...",
+    "search_title": "Rechercher sur Spotify",
+    "loading": "Chargement...",
+    "load_failed": "Impossible de charger cette page"
   }
 }

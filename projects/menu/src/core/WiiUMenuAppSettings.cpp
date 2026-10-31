@@ -6,6 +6,9 @@
 #include "widgets/AdaptiveIconLoad.hpp"
 #include "widgets/GlossyIcon.hpp"
 #include "DebugLog.hpp"
+#ifdef SWITCHU_MENU
+#include "smi_commands.hpp"
+#endif
 
 #include <nxui/core/I18n.hpp>
 #include <switchu/control_cache.hpp>
@@ -297,6 +300,7 @@ void WiiUMenuApp::createSettings() {
     m_settings->setGridLayoutState(m_config.gridColumns, m_config.gridRows);
     m_settings->setUiLanguageOverride(m_config.uiLanguageOverride);
     m_settings->setClockUse12HourState(m_config.clockUse12Hour);
+    m_settings->setLockScreenState(m_config.lockScreenEnabled);
     m_settings->setWebClockSyncState(m_config.webClockSyncEnabled);
     m_settings->setAccessibilityEnabledState(m_config.accessibilityEnabled);
     m_settings->setAccessibilitySpeechState(m_config.accessibilitySpeakHints,
@@ -368,6 +372,14 @@ void WiiUMenuApp::createSettings() {
         m_config.clockUse12Hour = enabled;
         if (m_clock)
             m_clock->setUse12HourClock(enabled);
+    });
+    m_settings->onLockScreenChange([this](bool enabled) {
+        if (m_config.lockScreenEnabled == enabled)
+            return;
+        m_config.lockScreenEnabled = enabled;
+#ifdef SWITCHU_MENU
+        switchu::menu::smi_cmd::setLockScreen(enabled);
+#endif
     });
     m_settings->onWebClockSyncChange([this](bool enabled) {
         if (m_config.webClockSyncEnabled == enabled)
@@ -717,6 +729,11 @@ void WiiUMenuApp::createQuickSettings() {
 
     QuickSettingsOverlay::Callbacks callbacks;
     callbacks.onBgmVolumeChanged = [this](float value) {
+        // With Spotify selected the music slider drives Switify's volume.
+        if (spotifySource()) {
+            setSpotifyVolume(value);
+            return;
+        }
         m_config.musicVolume = value;
         m_audio.setVolume(value);
     };
@@ -724,51 +741,64 @@ void WiiUMenuApp::createQuickSettings() {
         m_config.sfxVolume = value;
         m_audio.setSfxVolume(value);
     };
-    callbacks.onMusicPlayPause = [this]() {
-        m_audio.togglePlayPause();
-        m_config.musicEnabled = m_audio.isPlaying();
-        persistMusicPlaybackState(false);
-        m_config.save();
-    };
-    callbacks.onMusicPrev = [this]() {
-        m_audio.prevTrack();
-        persistMusicPlaybackState(false);
-        m_config.musicEnabled = true;
-        m_config.save();
-    };
-    callbacks.onMusicNext = [this]() {
-        m_audio.nextTrack();
-        persistMusicPlaybackState(false);
-        m_config.musicEnabled = true;
-        m_config.save();
-    };
+    callbacks.onMusicPlayPause = [this]() { toggleActiveMusic(); };
+    callbacks.onMusicPrev = [this]() { stepActiveMusic(false); };
+    callbacks.onMusicNext = [this]() { stepActiveMusic(true); };
     callbacks.onMusicToggleShuffle = [this]() {
+        if (spotifySource()) {
+            const auto now = m_switify.nowPlaying();
+            if (now.controllable())
+                m_switify.send(switchu::switify::IpcCommand::SetShuffle, now.shuffle ? 0u : 1u);
+            return;
+        }
         m_audio.setShuffle(!m_audio.shuffle());
         persistMusicPlaybackState(false);
         m_config.save();
     };
     callbacks.onMusicCycleRepeat = [this]() {
+        if (spotifySource()) {
+            const auto now = m_switify.nowPlaying();
+            if (now.controllable())
+                m_switify.send(switchu::switify::IpcCommand::SetRepeatMode,
+                               switchu::switify::switifyRepeatFromMenu((now.repeat + 1) % 3));
+            return;
+        }
         const int next = (static_cast<int>(m_audio.repeatMode()) + 1) % 3;
         m_audio.setRepeatMode(static_cast<MusicRepeatMode>(next));
         persistMusicPlaybackState(false);
         m_config.save();
     };
     callbacks.onMusicSelectTrack = [this](int index) {
+        if (spotifySource()) {
+            activateSpotifyRow(index);
+            return;
+        }
+        pauseSpotifyForLocal();
         m_audio.playTrackAt(index);
         m_config.musicEnabled = true;
         persistMusicPlaybackState(false);
         m_config.save();
     };
     callbacks.onMusicMoveTrack = [this](int from, int to) {
-        if (!m_audio.moveTrack(from, to))
+        if (spotifySource() || !m_audio.moveTrack(from, to))
             return;
         persistMusicPlaybackState(false);
         m_config.save();
     };
     callbacks.onMusicSeek = [this](float seconds) {
+        if (spotifySource()) {
+            if (m_switify.nowPlaying().canSeek)
+                m_switify.send(switchu::switify::IpcCommand::Seek,
+                               static_cast<std::uint32_t>(std::max(0.f, seconds) * 1000.f));
+            return;
+        }
         m_audio.seekTo(seconds);
     };
+    callbacks.onMusicSetSource = [this](bool spotify) { setMusicSource(spotify); };
+    callbacks.onMusicBrowseBack = [this]() { return spotifyBrowseBack(); };
     callbacks.onMusicQueryState = [this]() {
+        if (spotifySource())
+            return spotifyMusicState();
         QuickSettingsOverlay::MusicUiState state;
         state.nowPlaying = m_audio.currentDisplayTitle();
         if (state.nowPlaying.empty())
@@ -792,14 +822,18 @@ void WiiUMenuApp::createQuickSettings() {
         }
         return state;
     };
-    callbacks.onMusicQueryCoverArt = [this]() {
+    callbacks.onMusicQueryCoverArt = [this]() -> std::vector<uint8_t> {
+        if (spotifySource()) {
+            const auto cover = m_switify.cover();
+            return cover ? cover->bytes : std::vector<uint8_t>{};
+        }
         return m_audio.currentCoverArt();
     };
     callbacks.onMusicQueryTrackCover = [this](int index) -> const std::vector<uint8_t>* {
-        return m_audio.trackCoverArt(index);
+        return spotifySource() ? nullptr : m_audio.trackCoverArt(index);
     };
     callbacks.onMusicQueryFolderCover = [this](const std::string& folder) -> const std::vector<uint8_t>* {
-        return m_audio.folderCoverArt(folder);
+        return spotifySource() ? nullptr : m_audio.folderCoverArt(folder);
     };
     callbacks.onRenderMenuBackground = [this](nxui::Renderer& ren, float alpha) {
         if (m_background)

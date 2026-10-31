@@ -23,6 +23,7 @@
 #include <cstring>
 #endif
 #include <memory>
+#include <malloc.h>
 
 namespace {
 constexpr size_t kMenuAppletHeapSize = 224u * 1024u * 1024u;
@@ -121,7 +122,9 @@ constexpr size_t kHeapLadder[] = {
 };
 }
 
-extern "C" size_t g_switchuHeapSize = 0;
+size_t g_switchuHeapSize = 0;
+// Kernel time to map + clear the heap; paid on every HOME (menu cold start).
+static uint64_t g_switchuHeapInitNs = 0;
 
 extern "C" void __libnx_initheap(void) {
     extern char* fake_heap_start;
@@ -129,6 +132,7 @@ extern "C" void __libnx_initheap(void) {
 
     void* address = nullptr;
     size_t granted = 0;
+    const uint64_t startTick = armGetSystemTick();
     for (size_t requested : kHeapLadder) {
         if (R_SUCCEEDED(svcSetHeapSize(&address, requested))) {
             granted = requested;
@@ -137,6 +141,7 @@ extern "C" void __libnx_initheap(void) {
     }
 
     g_switchuHeapSize = granted;
+    g_switchuHeapInitNs = armTicksToNs(armGetSystemTick() - startTick);
     fake_heap_start = static_cast<char*>(address);
     fake_heap_end = static_cast<char*>(address) + granted;
 }
@@ -354,6 +359,9 @@ int main(int argc, char* argv[]) {
     DebugLog::log("[main] applet config...");
 #else
     DebugLog::log("[menu] main() entry");
+    DebugLog::log("[mem] heap granted=%zuMiB init=%lums",
+                  g_switchuHeapSize >> 20,
+                  static_cast<unsigned long>(g_switchuHeapInitNs / 1000000ULL));
 
     auto startMode = readStartMode();
     auto sysStatus = readSystemStatus();
@@ -406,7 +414,8 @@ int main(int argc, char* argv[]) {
         auto makeMenuActivity = [sysStatus, startMode](bool fromTutorial = false) -> std::unique_ptr<nxui::Activity> {
             auto activity = std::make_unique<WiiUMenuApp>();
             activity->setStartupStatus(sysStatus,
-                startMode == switchu::smi::MenuStartMode::AppletReturn);
+                startMode == switchu::smi::MenuStartMode::AppletReturn,
+                startMode == switchu::smi::MenuStartMode::LockScreen);
             activity->setTutorialStartupFade(fromTutorial);
             return activity;
         };
@@ -439,6 +448,10 @@ int main(int argc, char* argv[]) {
     DebugLog::closeFileLog();
 #endif
 #ifdef SWITCHU_MENU
+    // newlib never gives sbrk memory back: arena is the peak heap this
+    // session really needed, to compare against what the ladder reserved.
+    DebugLog::log("[mem] heap peak=%zuMiB of %zuMiB",
+                  static_cast<size_t>(mallinfo().arena) >> 20, g_switchuHeapSize >> 20);
     DebugLog::log("[menu] exit");
 #endif
     return 0;

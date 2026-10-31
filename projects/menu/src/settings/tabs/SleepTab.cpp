@@ -95,6 +95,20 @@ SettingsScreen::Tab settings::tabs::SleepTab::build(SettingsScreen& screen) {
     }
 
     {
+        SettingItem it; it.label = i18n.tr("settings.sleep.lock_screen", "Lock Screen"); it.type = ItemType::Toggle;
+        it.description = i18n.tr("settings.sleep.lock_screen_desc",
+            "Show the lock screen when the console wakes from sleep.");
+        it.boolVal = screen.m_lockScreenEnabled;
+        it.anim01 = it.boolVal ? 1.f : 0.f;
+        it.onChange = [&screen](SettingItem& self) {
+            screen.m_lockScreenEnabled = self.boolVal;
+            if (screen.m_lockScreenCb)
+                screen.m_lockScreenCb(self.boolVal);
+        };
+        t.items.push_back(std::move(it));
+    }
+
+    {
         SettingItem it; it.label = i18n.tr("settings.sleep.auto_sleep", "Auto-Sleep");
         it.type = ItemType::Section;
         t.items.push_back(std::move(it));

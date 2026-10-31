@@ -154,7 +154,9 @@
       "media_sleep": "Slaapstand tijdens media",
       "media_sleep_desc": "Sta automatische slaapstand toe tijdens mediagebruik.",
       "wake_power": "Wakker worden bij stroom",
-      "wake_power_desc": "Maak de console wakker bij aansluiten of loskoppelen van de adapter."
+      "wake_power_desc": "Maak de console wakker bij aansluiten of loskoppelen van de adapter.",
+      "lock_screen": "Vergrendelscherm",
+      "lock_screen_desc": "Toon het vergrendelscherm wanneer de console uit de slaapstand komt."
     },
     "theme": {
       "preset": "Voorinstelling",
@@ -245,7 +247,8 @@
     "move_prefix": "Verplaatsen: ",
     "close_title": "Spel sluiten",
     "close_prefix": "Sluiten",
-    "close_suffix": "?\nNiet-opgeslagen voortgang gaat verloren."
+    "close_suffix": "?\nNiet-opgeslagen voortgang gaat verloren.",
+    "replace_message": "De software die nu is onderbroken wordt afgesloten.\nNiet-opgeslagen voortgang gaat verloren."
   },
   "power": {
     "title": "Energie",
@@ -433,7 +436,8 @@
       "open_user_page": "A om de gebruikerspagina te openen.",
       "grid_empty": "Gebruik de richtingsknoppen om naar een ander vak te gaan.",
       "game_launchable": "A om te starten. Plus voor opties. Y om te verplaatsen. ZL of ZR voor andere pagina.",
-      "game_blocked": "A toont waarom dit is geblokkeerd."
+      "game_blocked": "A toont waarom dit is geblokkeerd.",
+      "now_playing_widget": "A om af te spelen of te pauzeren. Plus voor volgende, vorige, muziekbron en widgetopties. Y om te verplaatsen."
     },
     "actions": {
       "edit_mode": "Richtingsknoppen kiezen de nieuwe positie. Y om te plaatsen. B annuleert.",
@@ -554,6 +558,51 @@
     "reboot": "Opnieuw opstarten",
     "power_off": "Uitschakelen",
     "hint_adjust": "Aanpassen",
-    "hint_shortcut": "Snelle instellingen"
+    "hint_shortcut": "Snelle instellingen",
+    "source_local": "Nummers",
+    "source_spotify": "Spotify"
+  },
+  "lockscreen": {
+    "hint": "Druk drie keer op dezelfde knop.",
+    "sunday": "Zondag",
+    "monday": "Maandag",
+    "tuesday": "Dinsdag",
+    "wednesday": "Woensdag",
+    "thursday": "Donderdag",
+    "friday": "Vrijdag",
+    "saturday": "Zaterdag"
+  },
+  "widget": {
+    "now_playing": "Nu aan het afspelen",
+    "playing": "Speelt",
+    "paused": "Gepauzeerd",
+    "next": "Volgend nummer",
+    "previous": "Vorig nummer",
+    "switch_to_spotify": "Overschakelen naar Spotify",
+    "switch_to_songs": "Overschakelen naar nummers",
+    "play_pause": "Afspelen/Pauze"
+  },
+  "switify": {
+    "not_installed": "Switify is niet geïnstalleerd",
+    "not_installed_desc": "Installeer de Switify-overlay en de achtergronddienst om hier Spotify te luisteren.",
+    "not_running": "Switify is niet actief",
+    "press_play": "Druk op Afspelen om het te starten",
+    "press_a": "Druk op A om het te starten",
+    "starting": "Switify wordt gestart...",
+    "sign_in": "Meld je aan met de Switify-app",
+    "sign_in_desc": "Open de Switify-app één keer en meld je aan bij Spotify. De achtergronddienst gebruikt die sessie opnieuw.",
+    "connecting": "Verbinden...",
+    "nothing": "Er wordt niets afgespeeld",
+    "start_title": "Switify starten?",
+    "start_desc": "De achtergronddienst van Switify start en blijft Spotify afspelen terwijl je speelt. Je kunt hem stoppen via de Switify-overlay.",
+    "start": "Starten",
+    "queue": "Wachtrij",
+    "current_playlist": "Huidige afspeellijst",
+    "library": "Jouw bibliotheek",
+    "home": "Start",
+    "search": "Zoeken...",
+    "search_title": "Zoeken op Spotify",
+    "loading": "Laden...",
+    "load_failed": "Deze pagina kon niet worden geladen"
   }
 }

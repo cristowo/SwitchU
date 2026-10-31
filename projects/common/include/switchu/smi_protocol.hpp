@@ -48,6 +48,7 @@ enum class SystemMessage : uint32_t {
     IsApplicationValid    = 32,
     SetManualDateTime     = 33,
     SetInternetTimeSync   = 34,
+    SetLockScreen         = 35,
 
     MenuReady             = 40,
     MenuClosing           = 41,
@@ -57,6 +58,8 @@ enum class MenuStartMode : uint32_t {
     MainMenu       = 0,
     StartupBoot    = 1,
     AppletReturn   = 2,
+    // Woken from sleep over a suspended title: show the lock screen first.
+    LockScreen     = 3,
 };
 
 struct CommandHeader {
@@ -91,6 +94,12 @@ struct InternetTimeSyncArgs {
     uint8_t _pad[7];
 };
 static_assert(sizeof(InternetTimeSyncArgs) == 8);
+
+struct LockScreenArgs {
+    uint8_t enabled;
+    uint8_t _pad[7];
+};
+static_assert(sizeof(LockScreenArgs) == 8);
 
 struct OperationOutcome {
     uint64_t request_id;

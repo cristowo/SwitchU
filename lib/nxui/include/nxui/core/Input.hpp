@@ -61,6 +61,10 @@ public:
 
     bool  hasUserActivity() const;
 
+    // Drop this frame's buttons, sticks and touch for every later reader
+    // (e.g. a lock screen that owns the frame). Touch edge tracking survives.
+    void  clearFrame();
+
 private:
     PadState m_pad{};
     uint64_t m_kDown = 0;
@@ -70,6 +74,7 @@ private:
     float m_rx = 0, m_ry = 0;
     bool  m_touching    = false;
     bool  m_wasTouching = false;
+    bool  m_touchingRaw = false;
     bool  m_touchDown   = false;
     bool  m_touchUp     = false;
     float m_touchX = 0, m_touchY = 0;

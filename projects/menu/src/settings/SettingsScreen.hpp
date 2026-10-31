@@ -28,6 +28,7 @@ public:
     void onGridRowsChange(IntCb cb)     { m_gridRowsCb = std::move(cb); }
     void onUiLanguageChange(StringCb cb) { m_uiLanguageCb = std::move(cb); }
     void onClockUse12HourChange(BoolCb cb) { m_clockUse12HourCb = std::move(cb); }
+    void onLockScreenChange(BoolCb cb) { m_lockScreenCb = std::move(cb); }
     void onWebClockSyncChange(BoolCb cb) { m_webClockSyncCb = std::move(cb); }
     using ExternalToastCb = std::function<void(const std::string& msg, float holdSeconds)>;
     void onExternalToast(ExternalToastCb cb) { m_externalToastCb = std::move(cb); }
@@ -76,6 +77,9 @@ public:
     }
     void setClockUse12HourState(bool enabled) {
         m_clockUse12Hour = enabled;
+    }
+    void setLockScreenState(bool enabled) {
+        m_lockScreenEnabled = enabled;
     }
     void setWebClockSyncState(bool enabled) {
         m_webClockSyncEnabled = enabled;
@@ -143,6 +147,7 @@ private:
     IntCb m_gridRowsCb;
     StringCb m_uiLanguageCb;
     BoolCb m_clockUse12HourCb;
+    BoolCb m_lockScreenCb;
     BoolCb m_webClockSyncCb;
     ExternalToastCb m_externalToastCb;
     ClockSyncBootRetryCb m_clockSyncBootRetryCb;
@@ -171,6 +176,7 @@ private:
     int m_gridRows = 3;
     std::string m_uiLanguageOverride = "auto";
     bool m_clockUse12Hour = false;
+    bool m_lockScreenEnabled = true;
     bool m_webClockSyncEnabled = false;
     bool m_clockSyncToastFailureOnly = false;
     bool m_accessibilityEnabled = true;

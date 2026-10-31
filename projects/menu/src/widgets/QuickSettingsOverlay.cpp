@@ -115,6 +115,8 @@ static constexpr float kSliderLabelScale = 0.82f;
 // Player now-playing strip: a step up from playlist thumbs (28). Card height is
 // tuned so padding under the power row equals kWidgetGap.
 static constexpr float kMusicNowPlayingThumbSize = 36.f;
+static constexpr float kSourceW = 196.f;
+static constexpr float kSourceH = 32.f;
 static constexpr float kMusicNowPlayingThumbGap = 10.f;
 
 static constexpr float kStatusY = kTitleY + kTitleLineH + kTitleBreath;
@@ -590,7 +592,8 @@ void QuickSettingsOverlay::syncMusicFromCallbacks() {
 
     MusicUiState next = m_callbacks.onMusicQueryState();
     const bool listChanged =
-        next.playlistOrderKeys != m_music.playlistOrderKeys
+        next.spotify != m_music.spotify
+        || next.playlistOrderKeys != m_music.playlistOrderKeys
         || next.playlistTitles.size() != m_music.playlistTitles.size()
         || next.hasAlbumFolders != m_music.hasAlbumFolders;
 
@@ -603,6 +606,8 @@ void QuickSettingsOverlay::syncMusicFromCallbacks() {
     m_music.positionSeconds = next.positionSeconds;
     m_music.durationSeconds = next.durationSeconds;
     m_music.currentIndex = next.currentIndex;
+    m_music.spotify = next.spotify;
+    m_music.playlistHeader = std::move(next.playlistHeader);
     if (listChanged) {
         m_music.hasAlbumFolders = next.hasAlbumFolders;
         m_music.playlistTitles = std::move(next.playlistTitles);
@@ -611,12 +616,22 @@ void QuickSettingsOverlay::syncMusicFromCallbacks() {
         m_music.playlistAlbumFolders = std::move(next.playlistAlbumFolders);
         if (m_music.hasAlbumFolders && m_playlistReorderMode)
             cancelPlaylistReorder();
+        // A new Spotify page (opened, loaded or went back) starts at its top.
+        if (m_music.spotify) {
+            m_playlistFocus = 0;
+            m_playlistScrollY = 0.f;
+        }
         rebuildPlaylistRows();
+        if (m_music.spotify) {
+            m_playlistFocus = 0;
+            if (m_playlistOpen) updateCursorTarget(true);
+        }
     }
 
     m_bgmVolume = std::clamp(m_music.volume, 0.0f, 1.0f);
-    if (m_music.currentIndex != m_coverTrackIndex) {
+    if (m_music.currentIndex != m_coverTrackIndex || next.coverKey != m_coverKey) {
         m_coverTrackIndex = m_music.currentIndex;
+        m_coverKey = next.coverKey;
         m_coverLoadAttempted = false;
         m_coverFsBlurCached = false;
         m_coverTex = nxui::Texture{};
@@ -629,7 +644,21 @@ void QuickSettingsOverlay::syncMusicFromCallbacks() {
 }
 
 bool QuickSettingsOverlay::playlistReorderAllowed() const {
-    return !m_music.hasAlbumFolders;
+    // Spotify pages belong to Switify; only the local playlist is reorderable.
+    return !m_music.hasAlbumFolders && !m_music.spotify;
+}
+
+void QuickSettingsOverlay::setMusicSource(bool spotify) {
+    if (m_music.spotify == spotify) return;
+    if (m_playlistReorderMode)
+        cancelPlaylistReorder();
+    if (m_callbacks.onMusicSetSource) m_callbacks.onMusicSetSource(spotify);
+    if (m_callbacks.onActivateSfx) m_callbacks.onActivateSfx();
+    syncMusicFromCallbacks();
+    m_playlistFocus = 0;
+    m_playlistScrollY = 0.f;
+    resetNowPlayingMarquee();
+    updateCursorTarget();
 }
 
 int QuickSettingsOverlay::playlistVisibleCount() const {
@@ -1542,6 +1571,9 @@ void QuickSettingsOverlay::setupNavigationActions() {
             return;
         }
         switch (m_selectedItem) {
+            case ItemIndex::MusicSource:
+                setMusicSource(false);
+                break;
             case ItemIndex::Brightness:
                 adjustSlider(ItemIndex::Brightness, -0.05f);
                 break;
@@ -1618,6 +1650,9 @@ void QuickSettingsOverlay::setupNavigationActions() {
             return;
         }
         switch (m_selectedItem) {
+            case ItemIndex::MusicSource:
+                setMusicSource(true);
+                break;
             case ItemIndex::Brightness:
                 adjustSlider(ItemIndex::Brightness, 0.05f);
                 break;
@@ -1692,6 +1727,9 @@ void QuickSettingsOverlay::setupNavigationActions() {
             return;
         }
         switch (m_selectedItem) {
+            case ItemIndex::MusicSource:
+                setMusicSource(!m_music.spotify);
+                break;
             case ItemIndex::MusicTransport:
                 activateMusicControl();
                 break;
@@ -1734,6 +1772,15 @@ void QuickSettingsOverlay::setupNavigationActions() {
             return;
         }
         if (m_playlistOpen) {
+            if (m_callbacks.onMusicBrowseBack && m_callbacks.onMusicBrowseBack()) {
+                syncMusicFromCallbacks();
+                m_playlistFocus = 0;
+                m_playlistScrollY = 0.f;
+                resetPlaylistMarquee();
+                updateCursorTarget(true);
+                if (m_callbacks.onNavigateSfx) m_callbacks.onNavigateSfx();
+                return;
+            }
             closePlaylist();
             return;
         }
@@ -2157,6 +2204,8 @@ nxui::Rect QuickSettingsOverlay::computeItemRect(ItemIndex item) const {
     switch (item) {
         case ItemIndex::BatterySaver:
             return {rowLeft, panel.y + kBatterySaverY, rowW, kToggleH};
+        case ItemIndex::MusicSource:
+            return computeSourceRect(-1);
         case ItemIndex::Brightness:
             return {rowLeft, panel.y + kBrightnessY, rowW, kSliderItemH};
         case ItemIndex::MusicTransport:
@@ -2177,6 +2226,16 @@ nxui::Rect QuickSettingsOverlay::computeItemRect(ItemIndex item) const {
         default:
             return {cx, panel.y, cw, 40.f};
     }
+}
+
+nxui::Rect QuickSettingsOverlay::computeSourceRect(int segment) const {
+    // Segmented "Songs | Spotify" pill on the right of the title row.
+    nxui::Rect panel = computePanelRect();
+    const nxui::Rect whole{panel.x + panel.width - 18.f - kSourceW,
+                           panel.y + kTitleY - 4.f, kSourceW, kSourceH};
+    if (segment < 0) return whole;
+    const float half = whole.width * 0.5f;
+    return {whole.x + half * static_cast<float>(segment), whole.y, half, whole.height};
 }
 
 nxui::Rect QuickSettingsOverlay::computeMusicCardRect() const {
@@ -2619,6 +2678,16 @@ void QuickSettingsOverlay::handleTouch(nxui::Input& input) {
             // fall through to normal panel controls.
         }
 
+        for (int segment = 0; segment < 2; ++segment) {
+            if (computeSourceRect(segment).contains(tx, ty)) {
+                m_nowPlayingFocused = false;
+                m_selectedItem = ItemIndex::MusicSource;
+                setMusicSource(segment == 1);
+                updateCursorTarget();
+                return;
+            }
+        }
+
         if (computeMusicCardRect().contains(tx, ty)) {
             nxui::Rect progressHit = computeProgressTrackRect();
             progressHit = {progressHit.x - 8.f, progressHit.y - 12.f,
@@ -2841,8 +2910,10 @@ void QuickSettingsOverlay::render(nxui::Renderer& ren) {
 
         float plx = pl.x + 16.f;
         if (m_smallFont) {
-            ren.drawText(i18n.tr("quicksettings.playlist", "Playlist"),
-                         {plx, pl.y + 14.f}, m_smallFont, primaryText, 0.72f);
+            const std::string header = m_music.playlistHeader.empty()
+                ? i18n.tr("quicksettings.playlist", "Playlist")
+                : ellipsize(m_smallFont, m_music.playlistHeader, kPlaylistWidth - 80.f, 0.72f);
+            ren.drawText(header, {plx, pl.y + 14.f}, m_smallFont, primaryText, 0.72f);
         }
 
         // Eye toggle stays visible even when cover art is hidden.
@@ -3027,7 +3098,36 @@ void QuickSettingsOverlay::render(nxui::Renderer& ren) {
     if (m_font || m_smallFont) {
         std::string title = i18n.tr("quicksettings.title", "Quick Settings");
         nxui::Font* titleFont = m_font ? m_font : m_smallFont;
-        ren.drawText(title, {cx, panel.y + kTitleY}, titleFont, primaryText, 0.95f);
+        // Long translations shrink to leave room for the source selector.
+        const float titleMaxW = computeSourceRect(-1).x - cx - 8.f;
+        const float titleW = titleFont->measure(title).x;
+        const float titleScale = titleW > 0.f ? std::min(0.95f, titleMaxW / titleW) : 0.95f;
+        ren.drawText(title, {cx, panel.y + kTitleY}, titleFont, primaryText, titleScale);
+    }
+
+    {
+        const nxui::Rect whole = computeSourceRect(-1);
+        ren.drawRoundedRect(whole, cardFill, whole.height * 0.5f);
+        ren.drawRoundedRectOutline(whole, neutralBorder, whole.height * 0.5f, 1.f);
+        const nxui::Rect active = computeSourceRect(m_music.spotify ? 1 : 0).shrunk(3.f);
+        ren.drawRoundedRect(active, cursorColor.withAlpha(0.30f * alpha), active.height * 0.5f);
+        if (m_smallFont) {
+            const std::string labels[2] = {
+                i18n.tr("quicksettings.source_local", "Songs"),
+                i18n.tr("quicksettings.source_spotify", "Spotify"),
+            };
+            for (int segment = 0; segment < 2; ++segment) {
+                const nxui::Rect r = computeSourceRect(segment);
+                const float scale = 0.68f;
+                const std::string text = ellipsize(m_smallFont, labels[segment],
+                                                   r.width - 12.f, scale);
+                const nxui::Vec2 size = m_smallFont->measure(text);
+                const bool on = (segment == 1) == m_music.spotify;
+                ren.drawText(text, {r.x + (r.width - size.x * scale) * 0.5f,
+                                    r.y + (r.height - size.y * scale) * 0.5f},
+                             m_smallFont, on ? primaryText : mutedText, scale);
+            }
+        }
     }
 
     nxui::Rect statusCard = {cardX, panel.y + kStatusY, cardW, kStatusH};

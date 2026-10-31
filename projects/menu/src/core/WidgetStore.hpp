@@ -15,6 +15,7 @@ enum class WidgetType : std::uint8_t {
     RandomScreenshot,
     ImagePin,
     Batteries,
+    NowPlaying,
 };
 
 struct WidgetSize {

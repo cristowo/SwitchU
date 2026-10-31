@@ -23,7 +23,8 @@ class Renderer;
 class QuickSettingsOverlay : public nxui::Widget {
 public:
     enum class ItemIndex {
-        BatterySaver = 0,
+        MusicSource = 0, // Local songs / Spotify selector in the title row
+        BatterySaver,
         MusicTransport,
         MusicProgress,
         BgmVolume,
@@ -66,6 +67,9 @@ public:
         std::vector<std::string> playlistFilenames;
         std::vector<std::string> playlistOrderKeys;
         std::vector<std::string> playlistAlbumFolders; // parallel to titles
+        bool spotify = false;        // active source is Spotify (Switify)
+        std::string coverKey;        // changes when the cover changes (Spotify)
+        std::string playlistHeader;  // replaces "Playlist" when non-empty
     };
 
     struct Callbacks {
@@ -90,6 +94,10 @@ public:
         std::function<void(int)>   onMusicSelectTrack;
         std::function<void(int, int)> onMusicMoveTrack;
         std::function<void(float)> onMusicSeek;
+        std::function<void(bool spotify)> onMusicSetSource;
+        /// B inside the playlist sheet. True when it navigated back instead of
+        /// leaving (Spotify browser), so the sheet stays open.
+        std::function<bool()> onMusicBrowseBack;
         std::function<MusicUiState()> onMusicQueryState;
         std::function<std::vector<uint8_t>()> onMusicQueryCoverArt;
         std::function<const std::vector<uint8_t>*(int)> onMusicQueryTrackCover;
@@ -148,6 +156,8 @@ private:
     void triggerPowerAction(PowerAction action);
     void updateCursorTarget(bool instant = false);
     void activateMusicControl();
+    void setMusicSource(bool spotify);
+    nxui::Rect computeSourceRect(int segment) const; // -1 whole, 0 local, 1 Spotify
     void openPlaylist();
     void closePlaylist();
     void cycleMusicControl(int delta);
@@ -295,6 +305,7 @@ private:
     nxui::Texture m_coverTex;
     std::vector<uint8_t> m_coverBytes;
     int   m_coverTrackIndex = -1;
+    std::string m_coverKey;
     bool  m_coverLoadAttempted = false;
     bool  m_playlistArtVisible = true;
     bool  m_coverFullscreen = false;

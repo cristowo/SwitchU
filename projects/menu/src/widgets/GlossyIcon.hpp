@@ -96,6 +96,12 @@ public:
     bool unloadWidgetImageAsset();
     void allowWidgetImageAssetRetry();
     void setWidgetHeader(std::string header) { m_widgetHeader = std::move(header); }
+    void setWidgetText(std::string primary, std::string secondary) {
+        m_widgetPrimary = std::move(primary);
+        m_widgetSecondary = std::move(secondary);
+    }
+    // Non-owning; drawn in the RecentPlaytime layout's square slot.
+    void setWidgetCover(nxui::Texture* cover) { m_widgetGameIcon = cover; }
     void setWidgetGameAssets(std::uint64_t titleId,
                              const std::string& heroPath,
                              const std::string& logoPath,

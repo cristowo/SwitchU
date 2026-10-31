@@ -280,7 +280,11 @@ static bool g_pendingForegroundAppletHome = false;
 static bool g_pendingHomeMenuLaunch = false;
 static const char* g_pendingHomeMenuSource = nullptr;
 static uint64_t g_pendingHomeMenuStartedAt = 0;
+// Mirrors the menu's "lock screen on wake" setting (sent after MenuReady).
+static bool g_lockScreenEnabled = true;
 static uint8_t g_lastBatteryPercent = 0xFF;
+static uint64_t g_lastBatteryPollTick = 0;
+static constexpr uint64_t kBatteryPollNs = 30'000'000'000ULL;
 static PsmChargerType g_lastChargerType = (PsmChargerType)0xFF;
 
 static bool shouldDeferViewPolling() {
@@ -1012,10 +1016,11 @@ static void startSleepSequence(const char* source) {
     pushNotification(smi::MenuMessage::SleepSequence);
     // Preserve the final state even if the sleep ends in a forced power loss.
     switchu::commitSdCard("sleep");
-    // The handoff is cooperative: give the menu a couple of frames to stop
-    // presenting and pause its audio instead of relying on the sleep landing
-    // a frame later.
-    svcSleepThread(50'000'000ULL);
+    // The handoff is cooperative: give the menu a few frames to present its
+    // lock screen, stop presenting and pause its audio instead of relying on
+    // the sleep landing a frame later. Skip the wait when no menu is up.
+    if (daemon::menu_la::isActive())
+        svcSleepThread(100'000'000ULL);
     appletStartSleepSequence(true);
 }
 
@@ -1239,6 +1244,24 @@ static void handleAppletMessages() {
         case 26:
         switchu::FileLog::log("[ae] -> Wakeup");
         g_batteryRefreshPending.store(true);
+        if (g_lockScreenEnabled && daemon::app::isRunning() &&
+            !daemon::menu_la::hasHolder() && !g_foregroundAppletActive) {
+            // Stock behaviour: wake lands on the lock screen, not the game.
+            // The system applet owns the foreground after wake, so the menu
+            // can open right away; the menu resumes the title once unlocked.
+            appletRequestToGetForeground();
+            svcSleepThread(kHomeMenuSettleNsSuspended);
+            g_menuReadyThisSession = false;
+            noteMenuLaunch("wake-lock");
+            Result rc = daemon::menu_la::launch(smi::MenuStartMode::LockScreen,
+                                                buildSystemStatus());
+            switchu::FileLog::log("[ae] wake lock screen launch rc=0x%X", rc);
+            if (R_SUCCEEDED(rc))
+                break;
+            rc = daemon::app::resume();
+            switchu::FileLog::log("[ae] wake lock fallback resume rc=0x%X", rc);
+            break;
+        }
         if (daemon::app::isRunning() && !daemon::menu_la::isActive()) {
             Result rc = daemon::app::resume();
             if (R_FAILED(rc)) {
@@ -1253,7 +1276,9 @@ static void handleAppletMessages() {
         if (daemon::menu_la::isActive()) {
             pushNotification(smi::MenuMessage::WakeUp);
         } else if (!daemon::app::isRunning()) {
-            daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
+            daemon::menu_la::launch(g_lockScreenEnabled ? smi::MenuStartMode::LockScreen
+                                                        : smi::MenuStartMode::MainMenu,
+                                    buildSystemStatus());
         }
         break;
     }
@@ -1517,7 +1542,7 @@ static void handleMenuCommand() {
             recordOperationResult(requestId, msg, result,
                                   daemon::app::suspendedTitleId());
         }
-        switchu::FileLog::logCommit("[smi] queued resume (actions=%zu)", g_actionQueue.size());
+        switchu::FileLog::log("[smi] queued resume (actions=%zu)", g_actionQueue.size());
         break;
 
     case smi::SystemMessage::TerminateApplication:
@@ -1662,6 +1687,13 @@ static void handleMenuCommand() {
         return;
     }
 
+    case smi::SystemMessage::SetLockScreen: {
+        auto args = reader.pop<smi::LockScreenArgs>();
+        g_lockScreenEnabled = args.enabled != 0;
+        switchu::FileLog::log("[smi] lock screen enabled=%d", g_lockScreenEnabled ? 1 : 0);
+        return;
+    }
+
     case smi::SystemMessage::MenuReady:
         switchu::FileLog::log("[smi] menu ready");
         g_menuReadyThisSession = true;
@@ -1714,9 +1746,9 @@ static bool handleAction(daemon::SystemAction& action) {
         }
 
         case daemon::SystemActionType::ResumeApplication: {
-            switchu::FileLog::logCommit("[action] resume: calling app::resume()");
+            switchu::FileLog::log("[action] resume: calling app::resume()");
             Result rc = daemon::app::resume();
-            switchu::FileLog::logCommit("[action] resume: app::resume() -> 0x%X", rc);
+            switchu::FileLog::log("[action] resume: app::resume() -> 0x%X", rc);
             recordOperationResult(action.requestId, smi::SystemMessage::ResumeApplication,
                                   rc, daemon::app::suspendedTitleId());
             if (R_FAILED(rc)) {
@@ -1913,6 +1945,16 @@ static void mainLoop() {
     if (g_batteryRefreshPending.load() && daemon::menu_la::isActive()) {
         g_batteryRefreshPending.store(false);
         pushBatteryStatusNotification(true);
+        g_lastBatteryPollTick = armGetSystemTick();
+    }
+    // The PSM state event only fires for charger / power-supply / voltage
+    // changes, never for the percentage itself, so a menu left open kept the
+    // value it had when it opened. Poll while it is on screen; the push only
+    // happens when the value actually changed.
+    if (daemon::menu_la::isActive() &&
+        elapsedNsSince(g_lastBatteryPollTick) >= kBatteryPollNs) {
+        g_lastBatteryPollTick = armGetSystemTick();
+        pushBatteryStatusNotification(false);
     }
 
     if (g_catalogChangedWhileMenuAway.load() && daemon::menu_la::isActive()) {
@@ -1971,7 +2013,7 @@ static void mainLoop() {
         char failStep[64] = {};
         Result failRc = 0;
         const bool haveGfxFail = !sawReady && readLastGfxFailMarker(failStep, sizeof(failStep), &failRc);
-        switchu::FileLog::logCommit(
+        switchu::FileLog::log(
             "[main] menu exited (reason=%d runtime=%lums ready=%d suspended=0x%016lX "
             "since_launch=%lums source=%s gfx_fail=%d step=%s rc=0x%X)",
             (int)daemon::menu_la::exitReason(),
@@ -1983,6 +2025,10 @@ static void mainLoop() {
             haveGfxFail ? 1 : 0,
             haveGfxFail ? failStep : "-",
             haveGfxFail ? failRc : 0);
+        // A normal exit (launch/resume) must not pay an SD commit; only keep
+        // the forced commit for the early-exit diagnostics below.
+        if (!sawReady)
+            switchu::FileLog::logCommit("[main] menu exited before ready");
         if (runtimeNs < 1'000'000'000ULL)
             ++g_menuFastExitCount;
         else

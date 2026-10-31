@@ -12,6 +12,7 @@ const char* typeKey(WidgetType type) {
         case WidgetType::RandomScreenshot: return "random_screenshot";
         case WidgetType::ImagePin: return "image_pin";
         case WidgetType::Batteries: return "batteries";
+        case WidgetType::NowPlaying: return "now_playing";
     }
     return "clock";
 }
@@ -24,6 +25,7 @@ const char* fallbackName(WidgetType type) {
         case WidgetType::RandomScreenshot: return "Random screenshot";
         case WidgetType::ImagePin: return "Image pin";
         case WidgetType::Batteries: return "Batteries";
+        case WidgetType::NowPlaying: return "Now playing";
     }
     return "Widget";
 }
@@ -31,7 +33,8 @@ const char* fallbackName(WidgetType type) {
 bool parseType(const std::string& value, WidgetType& type) {
     for (WidgetType candidate : {WidgetType::Clock, WidgetType::RecentlyPlayed,
                                  WidgetType::RecentPlaytime, WidgetType::RandomScreenshot,
-                                 WidgetType::ImagePin, WidgetType::Batteries}) {
+                                 WidgetType::ImagePin, WidgetType::Batteries,
+                                 WidgetType::NowPlaying}) {
         if (value == typeKey(candidate)) {
             type = candidate;
             return true;
@@ -43,7 +46,8 @@ bool parseType(const std::string& value, WidgetType& type) {
 std::vector<WidgetSize> supportedSizes(WidgetType type, AppLayoutMode layout) {
     if (layout == AppLayoutMode::DynamicLine) {
         if (type == WidgetType::RecentlyPlayed || type == WidgetType::RecentPlaytime ||
-            type == WidgetType::RandomScreenshot || type == WidgetType::Batteries)
+            type == WidgetType::RandomScreenshot || type == WidgetType::Batteries ||
+            type == WidgetType::NowPlaying)
             return {};
         return {{1, 1}};
     }
@@ -61,6 +65,8 @@ std::vector<WidgetSize> supportedSizes(WidgetType type, AppLayoutMode layout) {
             return {{1, 1}, {2, 1}, {1, 2}, {2, 2}};
         case WidgetType::Batteries:
             return {{2, 1}, {2, 2}};
+        case WidgetType::NowPlaying:
+            return {{2, 1}};
     }
     return {{1, 1}};
 }

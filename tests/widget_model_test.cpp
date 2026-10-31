@@ -15,13 +15,14 @@ int main() {
         WidgetType::RandomScreenshot,
         WidgetType::ImagePin,
         WidgetType::Batteries,
+        WidgetType::NowPlaying,
     };
 
     for (const WidgetType type : types) {
         const auto singleRow = switchu::widgets::supportedSizes(
             type, AppLayoutMode::DynamicLine);
         if (type == WidgetType::RecentlyPlayed || type == WidgetType::RecentPlaytime ||
-            type == WidgetType::Batteries ||
+            type == WidgetType::Batteries || type == WidgetType::NowPlaying ||
             type == WidgetType::RandomScreenshot) {
             assert(singleRow.empty());
             assert((switchu::widgets::validatedSize(
@@ -65,4 +66,9 @@ int main() {
     assert(switchu::widgets::parseType("image_pin", parsed));
     assert(parsed == WidgetType::ImagePin);
     assert(!switchu::widgets::parseType("unknown", parsed));
+    assert(switchu::widgets::parseType("now_playing", parsed));
+    assert(parsed == WidgetType::NowPlaying);
+    assert((switchu::widgets::supportedSizes(
+                WidgetType::NowPlaying, AppLayoutMode::Grid) ==
+            std::vector<WidgetSize>{{2, 1}}));
 }

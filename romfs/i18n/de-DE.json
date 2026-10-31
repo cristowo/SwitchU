@@ -154,7 +154,9 @@
       "media_sleep": "Standby-Modus während Medienwiedergabe",
       "media_sleep_desc": "Erlaubt den automatischen Standby-Modus auch bei der Medienwiedergabe.",
       "wake_power": "Aufwachen bei Stromzufuhr",
-      "wake_power_desc": "Konsole aufwecken, wenn das Netzteil an- oder abgesteckt wird."
+      "wake_power_desc": "Konsole aufwecken, wenn das Netzteil an- oder abgesteckt wird.",
+      "lock_screen": "Sperrbildschirm",
+      "lock_screen_desc": "Zeigt den Sperrbildschirm, wenn die Konsole aus dem Standby erwacht."
     },
     "theme": {
       "preset": "Voreinstellung",
@@ -245,7 +247,8 @@
     "move_prefix": "Verschieben: ",
     "close_title": "Spiel schließen",
     "close_prefix": "Schließen",
-    "close_suffix": "?\nNicht gespeicherter Fortschritt geht verloren."
+    "close_suffix": "?\nNicht gespeicherter Fortschritt geht verloren.",
+    "replace_message": "Die derzeit pausierte Software wird beendet.\nNicht gespeicherter Fortschritt geht verloren."
   },
   "power": {
     "title": "Energie",
@@ -433,7 +436,8 @@
       "open_user_page": "A zum Öffnen der Benutzerseite.",
       "grid_empty": "Mit dem Steuerkreuz zu einem anderen Feld wechseln.",
       "game_launchable": "A zum Starten. Plus für Optionen. Y zum Verschieben. ZL oder ZR zum Seitenwechsel.",
-      "game_blocked": "A zeigt den Grund der Sperre."
+      "game_blocked": "A zeigt den Grund der Sperre.",
+      "now_playing_widget": "A zum Abspielen oder Pausieren. Plus für nächsten, vorherigen Titel, Musikquelle und Widget-Optionen. Y zum Verschieben."
     },
     "actions": {
       "edit_mode": "Steuerkreuz wählt die neue Position. Y zum Platzieren. B zum Abbrechen.",
@@ -554,6 +558,51 @@
     "reboot": "Neustart",
     "power_off": "Ausschalten",
     "hint_adjust": "Einstellen",
-    "hint_shortcut": "Schnelleinstellungen"
+    "hint_shortcut": "Schnelleinstellungen",
+    "source_local": "Songs",
+    "source_spotify": "Spotify"
+  },
+  "lockscreen": {
+    "hint": "Drücke dreimal dieselbe Taste.",
+    "sunday": "Sonntag",
+    "monday": "Montag",
+    "tuesday": "Dienstag",
+    "wednesday": "Mittwoch",
+    "thursday": "Donnerstag",
+    "friday": "Freitag",
+    "saturday": "Samstag"
+  },
+  "widget": {
+    "now_playing": "Läuft gerade",
+    "playing": "Läuft",
+    "paused": "Pausiert",
+    "next": "Nächster Titel",
+    "previous": "Vorheriger Titel",
+    "switch_to_spotify": "Zu Spotify wechseln",
+    "switch_to_songs": "Zu Songs wechseln",
+    "play_pause": "Wiedergabe/Pause"
+  },
+  "switify": {
+    "not_installed": "Switify ist nicht installiert",
+    "not_installed_desc": "Installiere das Switify-Overlay und seinen Hintergrunddienst, um hier Spotify zu hören.",
+    "not_running": "Switify läuft nicht",
+    "press_play": "Drücke Wiedergabe, um es zu starten",
+    "press_a": "Drücke A, um es zu starten",
+    "starting": "Switify wird gestartet...",
+    "sign_in": "Melde dich in der Switify-App an",
+    "sign_in_desc": "Öffne die Switify-App einmal und melde dich bei Spotify an. Der Hintergrunddienst nutzt diese Sitzung weiter.",
+    "connecting": "Verbinden...",
+    "nothing": "Keine Wiedergabe",
+    "start_title": "Switify starten?",
+    "start_desc": "Der Hintergrunddienst von Switify startet und spielt Spotify weiter, während du spielst. Du kannst ihn im Switify-Overlay beenden.",
+    "start": "Starten",
+    "queue": "Warteschlange",
+    "current_playlist": "Aktuelle Playlist",
+    "library": "Bibliothek",
+    "home": "Startseite",
+    "search": "Suchen...",
+    "search_title": "Spotify durchsuchen",
+    "loading": "Wird geladen...",
+    "load_failed": "Diese Seite konnte nicht geladen werden"
   }
 }

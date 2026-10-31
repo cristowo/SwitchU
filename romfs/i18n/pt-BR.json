@@ -154,7 +154,9 @@
       "media_sleep": "Descanso Durante Reprodução de Mídia",
       "media_sleep_desc": "Permite que o console entre em descanso automático mesmo durante a reprodução de mídia.",
       "wake_power": "Despertar ao Mudar Estado de Energia",
-      "wake_power_desc": "Desperta o console quando o adaptador AC é conectado ou desconectado."
+      "wake_power_desc": "Desperta o console quando o adaptador AC é conectado ou desconectado.",
+      "lock_screen": "Tela de bloqueio",
+      "lock_screen_desc": "Mostra a tela de bloqueio quando o console sai do modo de espera."
     },
     "theme": {
       "preset": "Predefinição",
@@ -245,7 +247,8 @@
     "move_prefix": "Mover: ",
     "close_title": "Fechar jogo",
     "close_prefix": "Fechar",
-    "close_suffix": "?\nO progresso não salvo será perdido."
+    "close_suffix": "?\nO progresso não salvo será perdido.",
+    "replace_message": "O software suspenso no momento será fechado.\nO progresso não salvo será perdido."
   },
   "power": {
     "title": "Energia",
@@ -433,7 +436,8 @@
       "open_user_page": "A para abrir a página do usuário.",
       "grid_empty": "Use o direcional para ir para outro espaço.",
       "game_launchable": "A para iniciar. Plus para opções. Y para mover. ZL ou ZR para mudar de página.",
-      "game_blocked": "A para mostrar o motivo do bloqueio."
+      "game_blocked": "A para mostrar o motivo do bloqueio.",
+      "now_playing_widget": "A para reproduzir ou pausar. Mais para próxima, anterior, fonte de música e opções do widget. Y para mover."
     },
     "actions": {
       "edit_mode": "Direcional para escolher a nova posição. Y para colocar. B para cancelar.",
@@ -554,6 +558,51 @@
     "reboot": "Reiniciar",
     "power_off": "Desligar",
     "hint_adjust": "Ajustar",
-    "hint_shortcut": "Config. Rápidas"
+    "hint_shortcut": "Config. Rápidas",
+    "source_local": "Músicas",
+    "source_spotify": "Spotify"
+  },
+  "lockscreen": {
+    "hint": "Pressione o mesmo botão três vezes.",
+    "sunday": "Domingo",
+    "monday": "Segunda-feira",
+    "tuesday": "Terça-feira",
+    "wednesday": "Quarta-feira",
+    "thursday": "Quinta-feira",
+    "friday": "Sexta-feira",
+    "saturday": "Sábado"
+  },
+  "widget": {
+    "now_playing": "Tocando agora",
+    "playing": "Tocando",
+    "paused": "Pausado",
+    "next": "Próxima faixa",
+    "previous": "Faixa anterior",
+    "switch_to_spotify": "Mudar para o Spotify",
+    "switch_to_songs": "Mudar para músicas",
+    "play_pause": "Reproduzir/Pausar"
+  },
+  "switify": {
+    "not_installed": "O Switify não está instalado",
+    "not_installed_desc": "Instale o overlay do Switify e o serviço em segundo plano para ouvir o Spotify aqui.",
+    "not_running": "O Switify não está em execução",
+    "press_play": "Pressione Reproduzir para iniciá-lo",
+    "press_a": "Pressione A para iniciá-lo",
+    "starting": "Iniciando o Switify...",
+    "sign_in": "Entre com o app Switify",
+    "sign_in_desc": "Abra o app Switify uma vez e entre no Spotify. O serviço em segundo plano reutiliza essa sessão.",
+    "connecting": "Conectando...",
+    "nothing": "Nada tocando",
+    "start_title": "Iniciar o Switify?",
+    "start_desc": "O serviço em segundo plano do Switify será iniciado e continuará tocando o Spotify enquanto você joga. Você pode pará-lo pelo overlay do Switify.",
+    "start": "Iniciar",
+    "queue": "Fila",
+    "current_playlist": "Playlist atual",
+    "library": "Sua biblioteca",
+    "home": "Início",
+    "search": "Buscar...",
+    "search_title": "Buscar no Spotify",
+    "loading": "Carregando...",
+    "load_failed": "Não foi possível carregar esta página"
   }
 }

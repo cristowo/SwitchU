@@ -51,7 +51,8 @@
       "game_launchable": "A to launch. Plus for options. Y to move. ZL or ZR to change page.",
       "game_blocked": "A to show why this item is blocked. Plus for options.",
       "widget": "Plus for widget options. Y to move. Minus to change view.",
-      "recently_played_widget": "A to launch the recently played game. Plus for widget options. Y to move."
+      "recently_played_widget": "A to launch the recently played game. Plus for widget options. Y to move.",
+      "now_playing_widget": "A to play or pause. Plus for next, previous, music source and widget options. Y to move."
     },
     "actions": {
       "edit_mode": "Directional pad to choose the new position. A to place or enter a folder. B to cancel.",
@@ -419,7 +420,9 @@
       "media_sleep": "Sleep While Playing Media",
       "media_sleep_desc": "Allow the console to auto-sleep even during media playback.",
       "wake_power": "Wake at Power State Change",
-      "wake_power_desc": "Wake the console when the AC adapter is connected or disconnected."
+      "wake_power_desc": "Wake the console when the AC adapter is connected or disconnected.",
+      "lock_screen": "Lock Screen",
+      "lock_screen_desc": "Show the lock screen when the console wakes from sleep."
     },
     "theme": {
       "preset": "Preset",
@@ -534,6 +537,7 @@
     "close_title": "Close game",
     "close_prefix": "Close",
     "close_suffix": "?\nUnsaved progress will be lost.",
+    "replace_message": "The software that is currently suspended will be closed.\nUnsaved progress will be lost.",
     "steamgriddb": {
       "hero": "Hero",
       "hero_desc": "Choose a hero image.",
@@ -637,7 +641,15 @@
     "error_title": "Widget error",
     "save_error": "The widget change could not be saved.",
     "no_assets_title": "No widget images",
-    "no_assets_desc": "Add PNG, JPG, WebP or GIF files to sdmc:/config/SwitchU/widgets/assets/ or to the active theme's widgets folder."
+    "no_assets_desc": "Add PNG, JPG, WebP or GIF files to sdmc:/config/SwitchU/widgets/assets/ or to the active theme's widgets folder.",
+    "now_playing": "Now playing",
+    "playing": "Playing",
+    "paused": "Paused",
+    "next": "Next track",
+    "previous": "Previous track",
+    "switch_to_spotify": "Switch to Spotify",
+    "switch_to_songs": "Switch to songs",
+    "play_pause": "Play/Pause"
   },
   "controller_test": {
     "title": "Controller Test",
@@ -925,6 +937,41 @@
     "repeat": "Repeat",
     "shuffle": "Shuffle",
     "playlist": "Playlist",
-    "battery_saver": "Battery Saver"
+    "battery_saver": "Battery Saver",
+    "source_local": "Songs",
+    "source_spotify": "Spotify"
+  },
+  "lockscreen": {
+    "hint": "Press the same button three times.",
+    "sunday": "Sunday",
+    "monday": "Monday",
+    "tuesday": "Tuesday",
+    "wednesday": "Wednesday",
+    "thursday": "Thursday",
+    "friday": "Friday",
+    "saturday": "Saturday"
+  },
+  "switify": {
+    "not_installed": "Switify is not installed",
+    "not_installed_desc": "Install the Switify overlay and its background service to play Spotify here.",
+    "not_running": "Switify is not running",
+    "press_play": "Press Play to start it",
+    "press_a": "Press A to start it",
+    "starting": "Starting Switify...",
+    "sign_in": "Sign in with the Switify app",
+    "sign_in_desc": "Open the Switify app once and sign in to Spotify. The background service reuses that session.",
+    "connecting": "Connecting...",
+    "nothing": "Nothing playing",
+    "start_title": "Start Switify?",
+    "start_desc": "Switify's background service will start and keep playing Spotify while you play. You can stop it from the Switify overlay.",
+    "start": "Start",
+    "queue": "Queue",
+    "current_playlist": "Current playlist",
+    "library": "Your Library",
+    "home": "Home",
+    "search": "Search...",
+    "search_title": "Search Spotify",
+    "loading": "Loading...",
+    "load_failed": "Could not load this page"
   }
 }

@@ -39,6 +39,7 @@
 #include "themeshop/ThemeShopScreen.hpp"
 #include "core/Config.hpp"
 #include "core/FolderStore.hpp"
+#include "core/SwitifyClient.hpp"
 #include "core/FolderPeekComposite.hpp"
 #include "core/WidgetStore.hpp"
 #include "core/ThemePreset.hpp"
@@ -90,7 +91,8 @@ public:
     void setTutorialStartupFade(bool enabled);
 
 #ifdef SWITCHU_MENU
-    void setStartupStatus(const switchu::smi::SystemStatus& status, bool fastReturn = false);
+    void setStartupStatus(const switchu::smi::SystemStatus& status, bool fastReturn = false,
+                          bool lockScreen = false);
 #endif
 
     bool onCreate() override;
@@ -192,6 +194,29 @@ private:
     void ensureRecentWidgetAssets(std::uint64_t titleId);
     void pollRecentWidgetAssets();
     void syncRecentWidgetTextures();
+    // Music sources (WiiUMenuAppMusic.cpp): SD songs or Spotify via Switify.
+    struct NowPlayingView {
+        std::string header;
+        std::string primary;
+        std::string secondary;
+        std::string coverKey;
+        bool operator==(const NowPlayingView&) const = default;
+    };
+    bool spotifySource() const { return m_config.musicSource == 1; }
+    void setMusicSource(bool spotify);
+    void toggleActiveMusic();
+    void stepActiveMusic(bool next);
+    void pauseSpotifyForLocal();
+    void pauseLocalForSpotify();
+    void requestSwitifyPlayback();
+    void pollMusicLink(float dt);
+    NowPlayingView currentNowPlayingView() const;
+    void applyNowPlayingWidget(GlossyIcon& icon) const;
+    void refreshNowPlayingWidgets(const NowPlayingView& view);
+    QuickSettingsOverlay::MusicUiState spotifyMusicState();
+    void activateSpotifyRow(int index);
+    bool spotifyBrowseBack();
+    void setSpotifyVolume(float volume);
     void ensureGameArtwork(std::uint64_t titleId);
     void startNextGameArtworkDecode();
     void pollGameArtworkAssets();
@@ -218,7 +243,8 @@ private:
 #ifdef SWITCHU_MENU
     void activateApplication(GlossyIcon* source, AppEntry* entry,
                              std::uint64_t titleId,
-                             const std::string& launchTitle);
+                             const std::string& launchTitle,
+                             bool replaceConfirmed = false);
     void resumeSuspendedApplication(std::uint64_t titleId,
                                     const std::string& launchTitle);
 #endif
@@ -423,6 +449,18 @@ private:
     void tickMemInventory(float dt);
     void logMemInventory(const char* tag);
     void releaseLeaveSplashGpu(const char* reason);
+    // Wake lock screen ("press the same button three times"). Blocks all
+    // input while shown; resumeOnUnlock returns straight to the suspended title.
+    void showLockScreen(bool resumeOnUnlock);
+    void updateLockScreen(float dt);
+    void unlockLockScreen();
+    void renderLockScreen(nxui::Renderer& ren);
+    void refreshLockClock();
+    // Last frame of the suspended title (AM capture): lock backdrop and the
+    // first frame of the game -> HOME transition, so neither starts with a jump.
+    bool loadGameFrame(nxui::Renderer& ren);
+    void updateGameFrameReveal(float dt);
+    void renderGameFrameReveal(nxui::Renderer& ren);
     void closeQuickSettings();
     void createThemeShop();
     void createGameOptions();
@@ -522,6 +560,7 @@ private:
     nxui::Font  m_fontNormal;
     nxui::Font  m_fontSmall;
     nxui::Font  m_fontIcons;
+    nxui::Font  m_fontLock; // large clock, loaded on first lock screen
 
     GridModel    m_model;
     nxui::Theme  m_theme;
@@ -697,6 +736,26 @@ private:
     // After recreateSwapchain, underscan / music / cursor run over a few frames
     // so a hang in any of them still leaves "console awake" + step logs.
     int  m_wakePostSwapchainFrames = 0;
+    bool m_lockScreenActive = false;
+    bool m_lockScreenOnStart = false;
+    bool m_lockResumeOnUnlock = false;
+    // Locked over a suspended title: keep its frame (or black) behind the
+    // overlay until the title is back, HOME must never show in between.
+    bool m_lockGameBackdrop = false;
+    bool m_lockResumePending = false;
+    // Sleep requested on HOME: present the lock frame once, then stop.
+    bool m_sleepAfterPresent = false;
+    bool m_startFromGame = false;
+    bool m_gameFrameRevealActive = false;
+    float m_gameFrameReveal = 0.f;
+    nxui::Texture m_gameFrameTex;
+    float m_lockFade = 0.f;
+    float m_lockPressTimer = 0.f;
+    float m_lockClockTimer = 0.f;
+    int  m_lockPressCount = 0;
+    std::uint64_t m_lockPressButton = 0;
+    std::string m_lockTimeStr;
+    std::string m_lockDateStr;
     bool m_editMode          = false;
     int  m_editSourceIndex   = -1;
     int  m_editTargetIndex   = -1;
@@ -758,6 +817,15 @@ private:
     std::unique_ptr<nxui::Texture> m_recentWidgetHero;
     std::unique_ptr<nxui::Texture> m_recentWidgetLogo;
     std::unique_ptr<nxui::Texture> m_recentWidgetIcon;
+    switchu::switify::Client m_switify;
+    NowPlayingView m_nowPlayingView;
+    std::unique_ptr<nxui::Texture> m_nowPlayingCover;
+    std::string m_nowPlayingCoverKey;
+    float m_musicLinkPollIn = 0.f;
+    bool m_spotifyWasPlaying = false;
+    bool m_spotifyBrowseRoot = true;
+    float m_spotifyPendingVolume = -1.f;
+    std::chrono::steady_clock::time_point m_spotifyPendingVolumeAt{};
     struct RecentWidgetAssetDecodeState {
         std::uint64_t titleId = 0;
         steamgriddb::artwork::DecodedImage hero;
@@ -800,6 +868,7 @@ private:
     std::vector<std::uint8_t> m_widgetAssetKeepScratch;
     int m_consoleBatteryPercent = 0;
     bool m_consoleBatteryCharging = false;
+    bool m_consoleBatteryKnown = false;
     std::vector<AppEntry> m_allApps;
     std::uint32_t m_openFolderId = 0;
     std::uint32_t m_requestedFolderId = 0;
@@ -951,6 +1020,7 @@ private:
     bool m_leaveMotionFreezePending = false;
     static constexpr float kLeaveSplashHoldDur = 0.06f;
     static constexpr float kLeaveSplashFadeDur = 0.25f;
+    static constexpr float kGameFrameRevealDur = 0.32f;
 
     bool  m_audioInitPending = false;
     bool  m_audioHeldLogged  = false;

@@ -93,6 +93,10 @@ std::string WiiUMenuApp::accessibilityActionsFor(nxui::Widget* w) const {
             m_widgetStore.recentActivity().titleId != 0)
             return i18n.tr("accessibility.hints.recently_played_widget",
                            "A to launch the recently played game. Plus for widget options. Y to move.");
+        if (index >= 0 && m_model.at(index).isWidget() &&
+            m_model.at(index).widgetType == switchu::widgets::WidgetType::NowPlaying)
+            return i18n.tr("accessibility.hints.now_playing_widget",
+                           "A to play or pause. Plus for next, previous, music source and widget options. Y to move.");
         if (index >= 0 && m_model.at(index).isWidget())
             return i18n.tr("accessibility.hints.widget",
                            "Plus for widget options. Y to move. Minus to change view.");
@@ -1506,6 +1510,7 @@ void WiiUMenuApp::closeActiveOverlays(bool closeFolders) {
 }
 
 nxui::Widget* WiiUMenuApp::focusRoot() {
+    if (m_lockScreenActive || m_lockGameBackdrop || m_gameFrameRevealActive) return nullptr;
     if (m_leaveCaptureDeferred) return nullptr;
     if (m_leaveCapturePending) return nullptr;
     if (leaveSplashActive()) return nullptr;

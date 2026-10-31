@@ -11,6 +11,8 @@
 struct AppConfig {
     bool  musicEnabled = true;
     float musicVolume  = 0.4f;
+    // 0 = songs on the SD card, 1 = Spotify through Switify.
+    int   musicSource  = 0;
     float sfxVolume    = 0.7f;
     int   musicTrackIndex = 0;
     // Stable id ("track.mp3" or "Album/track.mp3"). Preferred over musicTrackIndex
@@ -34,6 +36,8 @@ struct AppConfig {
     std::string defaultProfileUid;
     bool  tutorialCompleted = false;
     bool  clockUse12Hour = false;
+    // Show the lock screen when the console wakes from sleep.
+    bool  lockScreenEnabled = true;
     // Alternate to Nintendo auto clock correction: HTTPS Date sync on boot.
     bool  webClockSyncEnabled = false;
     bool  accessibilityEnabled = true;

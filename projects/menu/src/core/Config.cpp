@@ -54,6 +54,8 @@ bool AppConfig::load() {
 
     readJsonOpt(j, "musicEnabled", musicEnabled);
     readJsonOpt(j, "musicVolume", musicVolume);
+    readJsonOpt(j, "musicSource", musicSource);
+    musicSource = std::clamp(musicSource, 0, 1);
     readJsonOpt(j, "sfxVolume", sfxVolume);
     readJsonOpt(j, "musicTrackIndex", musicTrackIndex);
     readJsonOpt(j, "musicTrackKey", musicTrackKey);
@@ -86,6 +88,7 @@ bool AppConfig::load() {
     readJsonOpt(j, "defaultProfileUid", defaultProfileUid);
     readJsonOpt(j, "tutorialCompleted", tutorialCompleted);
     readJsonOpt(j, "clockUse12Hour", clockUse12Hour);
+    readJsonOpt(j, "lockScreenEnabled", lockScreenEnabled);
     readJsonOpt(j, "webClockSyncEnabled", webClockSyncEnabled);
     readJsonOpt(j, "accessibilityEnabled", accessibilityEnabled);
     readJsonOpt(j, "accessibilitySpeakHints", accessibilitySpeakHints);
@@ -251,6 +254,7 @@ bool AppConfig::save() const {
     nlohmann::json j;
     j["musicEnabled"] = musicEnabled;
     j["musicVolume"] = musicVolume;
+    j["musicSource"] = musicSource;
     j["sfxVolume"] = sfxVolume;
     j["musicTrackIndex"] = musicTrackIndex;
     j["musicTrackKey"] = musicTrackKey;
@@ -270,6 +274,7 @@ bool AppConfig::save() const {
     j["defaultProfileUid"] = defaultProfileEnabled ? defaultProfileUid : std::string();
     j["tutorialCompleted"] = tutorialCompleted;
     j["clockUse12Hour"] = clockUse12Hour;
+    j["lockScreenEnabled"] = lockScreenEnabled;
     j["webClockSyncEnabled"] = webClockSyncEnabled;
     j["accessibilityEnabled"] = accessibilityEnabled;
     j["accessibilitySpeakHints"] = accessibilitySpeakHints;

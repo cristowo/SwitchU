@@ -252,7 +252,7 @@ void Application::dispatchInput() {
 void Application::run() {
     uint64_t prevTick = armGetSystemTick();
     float idleSeconds = 0.f;
-    bool skipIdleFrame = false;
+    unsigned idleFrame = 0;
 
     while (m_running) {
         uint64_t nowTick = armGetSystemTick();
@@ -274,9 +274,10 @@ void Application::run() {
         }
 
         m_input.update();
-        if (m_input.hasUserActivity()) {
+        if (m_input.hasUserActivity() || m_fullRateRequested) {
+            m_fullRateRequested = false;
             idleSeconds = 0.f;
-            skipIdleFrame = false;
+            idleFrame = 0;
         } else {
             idleSeconds += dt;
         }
@@ -295,9 +296,11 @@ void Application::run() {
                 // Keep input/update responsive, but present every other frame
                 // after the UI has been idle long enough for transitions to
                 // settle. Any new input immediately restores 60 Hz.
+                // ponytail: two fixed steps (30 Hz after 2 s, 15 Hz after 20 s);
+                // track per-widget animation state if this ever looks choppy.
                 if (idleSeconds >= 2.f) {
-                    skipIdleFrame = !skipIdleFrame;
-                    if (skipIdleFrame) {
+                    const unsigned stride = idleSeconds >= 20.f ? 4u : 2u;
+                    if (++idleFrame % stride != 0) {
                         svcSleepThread(16'000'000ULL);
                         continue;
                     }

@@ -32,7 +32,8 @@ void Input::update() {
     float hardwareTouchX = hardwareTouching ? tState.touches[0].x : m_touchX;
     float hardwareTouchY = hardwareTouching ? tState.touches[0].y : m_touchY;
 
-    m_wasTouching = m_touching;
+    m_wasTouching = m_touchingRaw;
+    m_touchingRaw = hardwareTouching;
     if (hardwareTouching) {
         m_touchX = hardwareTouchX;
         m_touchY = hardwareTouchY;
@@ -53,6 +54,12 @@ void Input::update() {
 float Input::touchDuration() const {
     uint64_t now = armGetSystemTick();
     return static_cast<float>(now - m_touchStartTick) / static_cast<float>(armGetSystemTickFreq());
+}
+
+void Input::clearFrame() {
+    m_kDown = m_kUp = m_kHeld = 0;
+    m_lx = m_ly = m_rx = m_ry = 0.f;
+    m_touching = m_touchDown = m_touchUp = false;
 }
 
 bool Input::isDown(Button b) const { return m_kDown & static_cast<uint64_t>(b); }

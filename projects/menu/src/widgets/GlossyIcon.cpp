@@ -805,7 +805,9 @@ void GlossyIcon::onContentRender(nxui::Renderer& ren) {
             return;
         }
 
-        if (m_widgetType == switchu::widgets::WidgetType::RecentPlaytime) {
+        // Now playing shares this card: cover art in the icon slot, track and artist.
+        if (m_widgetType == switchu::widgets::WidgetType::RecentPlaytime ||
+            m_widgetType == switchu::widgets::WidgetType::NowPlaying) {
             ren.drawRoundedRect(inner, m_loadingColor.withAlpha(0.13f * m_opacity),
                                 std::max(9.f, rad - 5.f));
             if (!m_font) return;

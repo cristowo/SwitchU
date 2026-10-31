@@ -198,7 +198,9 @@
       "shutdown_desc": "Apaga completamente la consola.",
       "sleep_confirm": "¿Poner la consola en modo de reposo?",
       "sleep_now": "Reposo",
-      "sleep_now_desc": "Pone la consola en modo de reposo."
+      "sleep_now_desc": "Pone la consola en modo de reposo.",
+      "lock_screen": "Pantalla de bloqueo",
+      "lock_screen_desc": "Muestra la pantalla de bloqueo al salir del modo de suspensión."
     },
     "theme": {
       "preset": "Preajuste",
@@ -329,6 +331,7 @@
     "close_title": "Cerrar juego",
     "close_prefix": "Cerrar",
     "close_suffix": "?\nSe perderá el progreso no guardado.",
+    "replace_message": "Se cerrará el programa que está suspendido.\nSe perderá el progreso no guardado.",
     "tile_size": "Tamaño del icono",
     "tile_size_desc": "Cambia el tamaño de este juego en la cuadrícula.",
     "options": "Opciones del software",
@@ -603,7 +606,8 @@
       "game_launchable": "A para iniciar. Plus para opciones. Y para mover. ZL o ZR para cambiar de página.",
       "game_blocked": "A para mostrar el motivo del bloqueo.",
       "widget": "Más para las opciones del widget. Y para mover. Menos para cambiar la vista.",
-      "recently_played_widget": "A para iniciar el juego jugado recientemente. Más para las opciones del widget. Y para mover."
+      "recently_played_widget": "A para iniciar el juego jugado recientemente. Más para las opciones del widget. Y para mover.",
+      "now_playing_widget": "A para reproducir o pausar. Más para siguiente, anterior, fuente de música y opciones del widget. Y para mover."
     },
     "actions": {
       "edit_mode": "Cruz direccional para elegir la nueva posición. Y para colocar. B para cancelar.",
@@ -759,7 +763,9 @@
     "shuffle": "Aleatorio",
     "playlist": "Lista",
     "music_idle": "Sin reproducir",
-    "playlist_empty": "Sin pistas"
+    "playlist_empty": "Sin pistas",
+    "source_local": "Canciones",
+    "source_spotify": "Spotify"
   },
   "profilelock": {
     "title": "Perfil predeterminado",
@@ -864,7 +870,15 @@
     "error_title": "Error de widget",
     "save_error": "No se pudo guardar el cambio del widget.",
     "no_assets_title": "Sin imágenes de widget",
-    "no_assets_desc": "Añada archivos PNG, JPG, WebP o GIF a sdmc:/config/SwitchU/widgets/assets/ o a la carpeta de widgets del tema activo."
+    "no_assets_desc": "Añada archivos PNG, JPG, WebP o GIF a sdmc:/config/SwitchU/widgets/assets/ o a la carpeta de widgets del tema activo.",
+    "now_playing": "Reproduciendo",
+    "playing": "Sonando",
+    "paused": "En pausa",
+    "next": "Canción siguiente",
+    "previous": "Canción anterior",
+    "switch_to_spotify": "Cambiar a Spotify",
+    "switch_to_songs": "Cambiar a canciones",
+    "play_pause": "Reproducir/Pausa"
   },
   "controller_test": {
     "title": "Prueba de mando",
@@ -930,5 +944,38 @@
       "off": "Desactivado"
     },
     "title": "Tema automático"
+  },
+  "lockscreen": {
+    "hint": "Pulsa el mismo botón tres veces.",
+    "sunday": "Domingo",
+    "monday": "Lunes",
+    "tuesday": "Martes",
+    "wednesday": "Miércoles",
+    "thursday": "Jueves",
+    "friday": "Viernes",
+    "saturday": "Sábado"
+  },
+  "switify": {
+    "not_installed": "Switify no está instalado",
+    "not_installed_desc": "Instale el overlay de Switify y su servicio en segundo plano para escuchar Spotify aquí.",
+    "not_running": "Switify no está en ejecución",
+    "press_play": "Pulse Reproducir para iniciarlo",
+    "press_a": "Pulse A para iniciarlo",
+    "starting": "Iniciando Switify...",
+    "sign_in": "Inicie sesión con la app de Switify",
+    "sign_in_desc": "Abra la app de Switify una vez e inicie sesión en Spotify. El servicio en segundo plano reutiliza esa sesión.",
+    "connecting": "Conectando...",
+    "nothing": "No se reproduce nada",
+    "start_title": "¿Iniciar Switify?",
+    "start_desc": "El servicio en segundo plano de Switify se iniciará y seguirá reproduciendo Spotify mientras juega. Puede detenerlo desde el overlay de Switify.",
+    "start": "Iniciar",
+    "queue": "Cola",
+    "current_playlist": "Lista actual",
+    "library": "Tu biblioteca",
+    "home": "Inicio",
+    "search": "Buscar...",
+    "search_title": "Buscar en Spotify",
+    "loading": "Cargando...",
+    "load_failed": "No se pudo cargar esta página"
   }
 }

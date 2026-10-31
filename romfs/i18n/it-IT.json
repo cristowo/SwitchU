@@ -154,7 +154,9 @@
       "media_sleep": "Sospensione durante i media",
       "media_sleep_desc": "Consente la sospensione automatica durante la riproduzione di media.",
       "wake_power": "Riattiva al cambio alimentazione",
-      "wake_power_desc": "Riattiva la console quando l'adattatore AC viene collegato o scollegato."
+      "wake_power_desc": "Riattiva la console quando l'adattatore AC viene collegato o scollegato.",
+      "lock_screen": "Schermata di blocco",
+      "lock_screen_desc": "Mostra la schermata di blocco quando la console esce dalla modalità riposo."
     },
     "theme": {
       "preset": "Preset",
@@ -245,7 +247,8 @@
     "move_prefix": "Sposta: ",
     "close_title": "Chiudi gioco",
     "close_prefix": "Chiudi",
-    "close_suffix": "?\nI progressi non salvati andranno persi."
+    "close_suffix": "?\nI progressi non salvati andranno persi.",
+    "replace_message": "Il software attualmente sospeso verrà chiuso.\nI progressi non salvati andranno persi."
   },
   "power": {
     "title": "Alimentazione",
@@ -433,7 +436,8 @@
       "open_user_page": "A per aprire la pagina utente.",
       "grid_empty": "Usa la croce direzionale per passare a un’altra casella.",
       "game_launchable": "A per avviare. Plus per opzioni. Y per spostare. ZL o ZR per cambiare pagina.",
-      "game_blocked": "A per mostrare il motivo del blocco."
+      "game_blocked": "A per mostrare il motivo del blocco.",
+      "now_playing_widget": "A per riprodurre o mettere in pausa. Più per successivo, precedente, sorgente musicale e opzioni del widget. Y per spostare."
     },
     "actions": {
       "edit_mode": "Croce direzionale per scegliere la nuova posizione. Y per piazzare. B per annullare.",
@@ -554,6 +558,51 @@
     "reboot": "Riavvia",
     "power_off": "Spegni",
     "hint_adjust": "Regola",
-    "hint_shortcut": "Impostazioni rapide"
+    "hint_shortcut": "Impostazioni rapide",
+    "source_local": "Brani",
+    "source_spotify": "Spotify"
+  },
+  "lockscreen": {
+    "hint": "Premi tre volte lo stesso pulsante.",
+    "sunday": "Domenica",
+    "monday": "Lunedì",
+    "tuesday": "Martedì",
+    "wednesday": "Mercoledì",
+    "thursday": "Giovedì",
+    "friday": "Venerdì",
+    "saturday": "Sabato"
+  },
+  "widget": {
+    "now_playing": "In riproduzione",
+    "playing": "In riproduzione",
+    "paused": "In pausa",
+    "next": "Brano successivo",
+    "previous": "Brano precedente",
+    "switch_to_spotify": "Passa a Spotify",
+    "switch_to_songs": "Passa ai brani",
+    "play_pause": "Riproduci/Pausa"
+  },
+  "switify": {
+    "not_installed": "Switify non è installato",
+    "not_installed_desc": "Installa l'overlay di Switify e il suo servizio in background per ascoltare Spotify qui.",
+    "not_running": "Switify non è in esecuzione",
+    "press_play": "Premi Riproduci per avviarlo",
+    "press_a": "Premi A per avviarlo",
+    "starting": "Avvio di Switify...",
+    "sign_in": "Accedi con l'app Switify",
+    "sign_in_desc": "Apri l'app Switify una volta e accedi a Spotify. Il servizio in background riutilizza quella sessione.",
+    "connecting": "Connessione...",
+    "nothing": "Nessuna riproduzione",
+    "start_title": "Avviare Switify?",
+    "start_desc": "Il servizio in background di Switify si avvierà e continuerà a riprodurre Spotify mentre giochi. Puoi fermarlo dall'overlay di Switify.",
+    "start": "Avvia",
+    "queue": "Coda",
+    "current_playlist": "Playlist attuale",
+    "library": "La tua libreria",
+    "home": "Home",
+    "search": "Cerca...",
+    "search_title": "Cerca su Spotify",
+    "loading": "Caricamento...",
+    "load_failed": "Impossibile caricare questa pagina"
   }
 }
