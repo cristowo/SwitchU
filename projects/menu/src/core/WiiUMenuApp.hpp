@@ -397,6 +397,7 @@ private:
     PageArrowAnim m_arrowAnimLeft, m_arrowAnimRight;
     bool m_touchArrowLeft = false, m_touchArrowRight = false;
     bool m_touchBattery = false;
+    bool m_touchLayoutFlip = false;
 
     nxui::Rect pageArrowRect(bool left);
     nxui::Rect deletePageButtonRect() const;
