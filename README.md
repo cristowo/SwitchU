@@ -36,8 +36,11 @@ Todo el trabajo original pertenece a sus autores. Estos forks mantienen sus lice
   "Reproduciendo" con portada y barras de espectro.
 - **Pantalla de bloqueo** al despertar, con contraseña opcional, controles de música
   y barras de espectro. Muestra "Reconectando..." mientras Spotify vuelve.
-- **Al encender la consola** vuelve la música propia de SwitchU, aunque lo último
-  haya sido Spotify.
+- **Al encender la consola** suena la música del tema desde su canción de HOME
+  ("Wii U Home Menu"), aunque lo último haya sido Spotify.
+- **Sin suspensión automática con música** (Ajustes, Suspensión; activada por
+  defecto): mientras suena música en HOME o en la pantalla de bloqueo, la consola
+  no se suspende sola.
 - **Cerrar juego**: pide confirmación y cierra al instante, como el HOME original.
   Antes esperaba hasta 15 s a un juego suspendido.
 - **Fiabilidad**:
@@ -54,9 +57,14 @@ El detalle está en `SWITCHU-CHANGES.md` de Switify. En resumen:
   de SwitchU. Solo se calculan si alguien las pide.
 - **`ReloadCurrent` (comando 39)**: tras suspender la consola, espera a que vuelva la
   sesión de Spotify y retoma la misma canción donde iba, en vez de saltarla.
-- **Lo cargado sigue sonando al reconectar**: al despertar suena el audio que ya
-  estaba en memoria. Si se acaba, la canción espera en ese punto y no salta a la
-  siguiente. El estado lleva el flag `SwitifyStatusFlag_Reloading` (bit 8) mientras tanto.
+- **Lo cargado sigue sonando al reconectar**: siempre hay unos 5 s de canción
+  descargados por adelantado (10 s en calidad normal). Al despertar suena eso y,
+  cuando vuelve la conexión, el mismo stream sigue desde el byte donde quedó: sin
+  saltos y, si vuelve a tiempo, sin cortes. Si no puede, la canción se recarga en
+  la posición exacta del decodificador. El estado lleva el flag
+  `SwitifyStatusFlag_Reloading` (bit 8) mientras tanto.
+- **Conexión al CDN más robusta**: una respuesta que no sea el rango pedido cierra
+  la conexión y abre otra, en vez de arruinar las siguientes y cambiar de canción.
 - **Memoria a demanda**: el heap ya no es un bloque fijo de 4 MiB. Se toma en pasos
   de 2 MiB según se necesita, hasta el mismo máximo. El servicio cuenta contra la
   memoria del sistema, y con 4 MiB fijos abrir HOME sobre un juego podía agotarla:

@@ -48,6 +48,7 @@ struct AppConfig {
     bool  lockShapes = false;
     // Sleep requests only turn the backlight off while music plays.
     bool  screenOffMusic = false;
+    bool  musicKeepsAwake = true; // no auto-sleep while music plays
     // Off: frosted panels without the shader glass or blur.
     bool  glassEffects = true;
     // Lock screen picture; empty means what is on screen, frosted.

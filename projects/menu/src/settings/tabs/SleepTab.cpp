@@ -169,6 +169,20 @@ SettingsScreen::Tab settings::tabs::SleepTab::build(SettingsScreen& screen) {
     }
 
     {
+        SettingItem it; it.label = i18n.tr("settings.sleep.music_keeps_awake", "No Auto-Sleep With Music"); it.type = ItemType::Toggle;
+        it.description = i18n.tr("settings.sleep.music_keeps_awake_desc",
+            "In HOME and on the lock screen: while music plays, the console does not go to sleep by itself. It still does with the power button.");
+        it.boolVal = screen.m_musicKeepsAwake;
+        it.anim01 = it.boolVal ? 1.f : 0.f;
+        it.onChange = [&screen](SettingItem& self) {
+            screen.m_musicKeepsAwake = self.boolVal;
+            if (screen.m_musicKeepsAwakeCb)
+                screen.m_musicKeepsAwakeCb(self.boolVal);
+        };
+        t.items.push_back(std::move(it));
+    }
+
+    {
         SettingItem it; it.label = i18n.tr("settings.sleep.lock_shapes", "Animated Theme on Lock Screen"); it.type = ItemType::Toggle;
         it.description = i18n.tr("settings.sleep.lock_shapes_desc",
             "Shows the theme's moving shapes, like its fireflies, on the lock screen. Uses a little more battery.");

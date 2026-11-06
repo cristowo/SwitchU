@@ -307,6 +307,7 @@ void WiiUMenuApp::createSettings() {
     m_settings->setLockMusicState(m_config.lockMusic);
     m_settings->setLockShapesState(m_config.lockShapes);
     m_settings->setScreenOffMusicState(m_config.screenOffMusic);
+    m_settings->setMusicKeepsAwakeState(m_config.musicKeepsAwake);
     m_settings->setGlassEffectsState(m_config.glassEffects);
     m_settings->setLockPictureState(m_config.lockPicturePath);
     m_settings->setWebClockSyncState(m_config.webClockSyncEnabled);
@@ -403,6 +404,9 @@ void WiiUMenuApp::createSettings() {
     });
     m_settings->onScreenOffMusicChange([this](bool enabled) {
         m_config.screenOffMusic = enabled;
+    });
+    m_settings->onMusicKeepsAwakeChange([this](bool enabled) {
+        m_config.musicKeepsAwake = enabled;
     });
     m_settings->onGlassEffectsChange([this](bool enabled) {
         m_config.glassEffects = enabled;

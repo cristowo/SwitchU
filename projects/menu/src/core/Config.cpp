@@ -94,6 +94,7 @@ bool AppConfig::load() {
     readJsonOpt(j, "lockMusic", lockMusic);
     readJsonOpt(j, "lockShapes", lockShapes);
     readJsonOpt(j, "screenOffMusic", screenOffMusic);
+    readJsonOpt(j, "musicKeepsAwake", musicKeepsAwake);
     readJsonOpt(j, "glassEffects", glassEffects);
     readJsonOpt(j, "lockPicturePath", lockPicturePath);
     readJsonOpt(j, "webClockSyncEnabled", webClockSyncEnabled);
@@ -287,6 +288,7 @@ bool AppConfig::save() const {
     j["lockMusic"] = lockMusic;
     j["lockShapes"] = lockShapes;
     j["screenOffMusic"] = screenOffMusic;
+    j["musicKeepsAwake"] = musicKeepsAwake;
     j["glassEffects"] = glassEffects;
     j["lockPicturePath"] = lockPicturePath;
     j["webClockSyncEnabled"] = webClockSyncEnabled;

@@ -440,6 +440,8 @@
       "lock_music_desc": "While a song plays on the lock screen: bars, its name and cover, and controls on L, R and ZR. The screen stays on while it plays.",
       "screen_off_music": "Music With the Screen Off",
       "screen_off_music_desc": "In HOME, handheld: while music plays, the power button only turns the screen off. The console stays awake and uses more battery than in sleep mode.",
+      "music_keeps_awake": "No Auto-Sleep With Music",
+      "music_keeps_awake_desc": "In HOME and on the lock screen: while music plays, the console does not go to sleep by itself. It still does with the power button.",
       "lock_shapes": "Animated Theme on Lock Screen",
       "lock_shapes_desc": "Shows the theme's moving shapes, like its fireflies, on the lock screen. Uses a little more battery."
     },

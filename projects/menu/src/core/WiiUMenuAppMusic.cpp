@@ -10,6 +10,7 @@
 #endif
 
 #include <algorithm>
+#include <cmath>
 #include <nxui/core/I18n.hpp>
 
 namespace sw = switchu::switify;
@@ -391,7 +392,10 @@ void WiiUMenuApp::updateLockMusic() {
         if (spotifySource()) {
             const auto now = m_switify.nowPlaying();
             hasTrack = now.controllable() && now.hasTrack;
-            m_lockMusicPlaying = hasTrack && now.playing;
+            // Reconnecting after a wake counts as playing: the lock's idle rule
+            // put the console back to sleep mid-reconnect, and the song stayed off.
+            m_lockMusicPlaying = hasTrack && (now.playing || now.reloading ||
+                                              m_spotifyReconnecting > 0.f);
         } else if (lockAllowsLocalMusic()) {
             const int index = m_audio.currentIndex();
             hasTrack = index >= 0 && index < m_audio.trackCount();
@@ -477,11 +481,14 @@ void WiiUMenuApp::renderLockMusic(nxui::Renderer& ren, float y, float a) {
                             nxui::Color(1.f, 1.f, 1.f, 0.12f * a), barW * 0.5f);
     }
 
+    // Top left, blinking: over the bars it hid them.
     if (m_spotifyReconnecting > 0.f && spotifySource()) {
         const std::string waiting = nxui::I18n::instance().tr(
             "lockscreen.music_reconnecting", "Reconnecting...");
-        ren.drawText(waiting, {(kW - m_fontSmall.measure(waiting).x) * 0.5f, kBarsBase + y - 50.f},
-                     &m_fontSmall, soft);
+        // The countdown runs every frame, so it doubles as the blink's clock.
+        const float blink = 0.5f + 0.5f * std::cos(m_spotifyReconnecting * 2.f * 3.14159265f);
+        ren.drawText(waiting, {kMargin, 28.f + y}, &m_fontSmall,
+                     nxui::Color(1.f, 1.f, 1.f, (0.25f + 0.65f * blink) * a));
     }
 
     // The song, bottom right: name and band, then the cover.
@@ -561,6 +568,15 @@ void WiiUMenuApp::pollMusicLink(float dt) {
     if (linkState != m_screenOffWantedSent) {
         m_screenOffWantedSent = linkState;
         switchu::menu::smi_cmd::setScreenOffMusic(screenOffWanted, now.playing);
+    }
+    // The system's own auto-sleep (Settings, Sleep) waits while music plays.
+    // It belongs to this applet: it ends with HOME, and a game keeps its own.
+    const bool keepAwake = m_config.musicKeepsAwake &&
+        (now.playing || now.reloading || m_audio.isPlaying());
+    if (keepAwake != m_autoSleepDisabled) {
+        m_autoSleepDisabled = keepAwake;
+        const Result rc = appletSetAutoSleepDisabled(keepAwake);
+        DebugLog::log("[power] auto-sleep %s rc=0x%X", keepAwake ? "off (music)" : "on", rc);
     }
     // Dark and silent is the worst of both: a short grace for a skip, then real sleep.
     constexpr float kDarkSilenceSeconds = 20.f;

@@ -7377,7 +7377,8 @@ void WiiUMenuApp::enterSystemSleep() {
     // wake path restores exactly what was audible before.
     // Sleep cuts the network and stops every process. Spotify going under while
     // it plays comes back broken, so it goes under paused, like the songs here.
-    m_spotifyPausedForSleep = m_switify.nowPlaying().playing;
+    // (Still reconnecting from the last wake: it was playing too.)
+    m_spotifyPausedForSleep = m_switify.nowPlaying().playing || m_switify.nowPlaying().reloading;
     if (m_spotifyPausedForSleep) {
         DebugLog::log("[power] pausing spotify for sleep");
         m_switify.send(switchu::switify::IpcCommand::Pause);
@@ -9081,6 +9082,20 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
                 if (!m_config.musicPlaylistOrder.empty())
                     m_audio.applyPlaylistOrder(m_config.musicPlaylistOrder);
                 m_config.save();
+            }
+            // The console starts with the theme's HOME song, from the top, not
+            // wherever the last session's playlist stopped.
+            // ponytail: found by its title ("Home Menu", the Wii U preset's);
+            // a preset field naming its default track if other presets need it.
+            if (m_consoleBoot && m_audio.trackCount() > 0) {
+                const auto& tracks = m_audio.tracks();
+                const auto home = std::find_if(tracks.begin(), tracks.end(), [](const auto& t) {
+                    return t.title.find("Home Menu") != std::string::npos;
+                });
+                const auto& track = home != tracks.end() ? *home : tracks.front();
+                m_config.musicTrackKey = track.relativeKey;
+                m_config.musicTrackIndex = static_cast<int>(&track - tracks.data());
+                m_config.musicPositionSeconds = 0.f;
             }
             DebugLog::log(
                 "[boot] music restore target key=%s index=%d pos=%.2f enabled=%d",

@@ -804,6 +804,7 @@ private:
     bool m_screenOff = false;
     float m_screenOffSilence = 0.f;
     int m_screenOffWantedSent = -1;
+    bool m_autoSleepDisabled = false;
     bool m_spotifyPausedForSleep = false;
     // After a wake, until sound is heard: the wait is Wi-Fi returning, and with no
     // sign of it the song looks dead.
