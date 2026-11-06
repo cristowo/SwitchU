@@ -8,6 +8,14 @@ Dos forks que funcionan juntos en la Switch:
 | [cristowo/SwitchU](https://github.com/cristowo/SwitchU) | [PoloNX/SwitchU](https://github.com/PoloNX/SwitchU) | `switify-integration` | Menú HOME estilo Wii U, con Spotify integrado |
 | [cristowo/Switify](https://github.com/cristowo/Switify) | [DomazinUS/Switify](https://github.com/DomazinUS/Switify) | `switchu` | Servicio en segundo plano de Switify, ajustado para SwitchU |
 
+## Capturas
+
+| HOME | Spotify en los Ajustes rápidos |
+| --- | --- |
+| ![HOME con el tema Luciérnagas](https://raw.githubusercontent.com/cristowo/SwitchU/switify-integration/screenshots/fork/home.jpg) | ![Ajustes rápidos con Spotify](https://raw.githubusercontent.com/cristowo/SwitchU/switify-integration/screenshots/fork/quick-settings-spotify.jpg) |
+| **Una playlist de Spotify** | **Pantalla de bloqueo con Spotify** |
+| ![Explorando una playlist de Spotify](https://raw.githubusercontent.com/cristowo/SwitchU/switify-integration/screenshots/fork/spotify-playlist.jpg) | ![Pantalla de bloqueo con barras de espectro](https://raw.githubusercontent.com/cristowo/SwitchU/switify-integration/screenshots/fork/lock-screen-spotify.jpg) |
+
 ## Créditos
 
 - **SwitchU**: [PoloNX](https://github.com/PoloNX) y sus colaboradores (GPL-3.0).
@@ -32,8 +40,12 @@ Todo el trabajo original pertenece a sus autores. Estos forks mantienen sus lice
 
 - **Música unificada**: selector Canciones / Spotify en los Ajustes rápidos (L).
   Spotify se controla y se explora (cola, playlist, biblioteca, inicio, búsqueda)
-  a través del servicio de Switify. Suena una sola fuente a la vez. Hay un widget
-  "Reproduciendo" con portada y barras de espectro.
+  a través del servicio de Switify. Suena una sola fuente a la vez.
+- **Widgets de música**: "Reproduciendo" en 1x1 (la portada ocupa todo el
+  recuadro, con las barras encima), 2x1 y 2x2 (portada, canción, barras y
+  progreso). Además, "Playlists de Spotify": muestra una playlist de tu
+  biblioteca; con Más pasas a la siguiente o la anterior, y con A suena ahí
+  mismo, sin abrir los Ajustes rápidos.
 - **Pantalla de bloqueo** al despertar, con contraseña opcional, controles de música
   y barras de espectro. Muestra "Reconectando..." mientras Spotify vuelve.
 - **Al encender la consola** suena la música del tema desde su canción de HOME

@@ -68,6 +68,8 @@ std::string WiiUMenuApp::accessibilityContextFor(nxui::Widget* w) const {
         return i18n.tr("accessibility.context.user_profiles", "User profiles");
     if (m_layoutFlip && m_layoutFlip.get() == w)
         return i18n.tr("accessibility.context.main_menu", "Main menu");
+    if (m_musicChip && m_musicChip.get() == w)
+        return i18n.tr("accessibility.context.main_menu", "Main menu");
     if (m_battery && m_battery.get() == w)
         return i18n.tr("accessibility.context.main_menu", "Main menu");
     return {};
@@ -97,6 +99,10 @@ std::string WiiUMenuApp::accessibilityActionsFor(nxui::Widget* w) const {
             m_model.at(index).widgetType == switchu::widgets::WidgetType::NowPlaying)
             return i18n.tr("accessibility.hints.now_playing_widget",
                            "A to play or pause. Plus for next, previous, music source and widget options. Y to move.");
+        if (index >= 0 && m_model.at(index).isWidget() &&
+            m_model.at(index).widgetType == switchu::widgets::WidgetType::SpotifyPlaylists)
+            return i18n.tr("accessibility.hints.playlists_widget",
+                           "A to play this playlist. Plus for the next or previous playlist and widget options. Y to move.");
         if (index >= 0 && m_model.at(index).isWidget())
             return i18n.tr("accessibility.hints.widget",
                            "Plus for widget options. Y to move. Minus to change view.");
@@ -1367,6 +1373,11 @@ void WiiUMenuApp::wireFocusCallback() {
                 m_titlePill->setVisible(true);
                 return;
             }
+            if (m_musicChip && m_musicChip.get() == cur) {
+                m_titlePill->setText(m_musicChip->statusText());
+                m_titlePill->setVisible(true);
+                return;
+            }
             if (m_layoutFlip && m_layoutFlip.get() == cur) {
                 m_titlePill->setText(nxui::I18n::instance().tr(
                     "hint.switch_layout", "Switch view"));
@@ -1407,6 +1418,7 @@ bool WiiUMenuApp::isCurrentFocusableWidget(nxui::Widget* w) const {
         if (btn.get() == w) return w->isFocusable();
     if (m_profileLock && m_profileLock.get() == w) return w->isFocusable();
     if (m_layoutFlip && m_layoutFlip.get() == w) return w->isFocusable();
+    if (m_musicChip && m_musicChip.get() == w) return w->isVisible() && w->isFocusable();
     if (m_battery && m_battery.get() == w) return w->isFocusable();
     if (m_grid)
         for (const auto& icon : m_grid->allIcons())
@@ -2083,6 +2095,7 @@ void WiiUMenuApp::handleTouch() {
         m_touchArrowLeft = m_touchArrowRight = false;
         m_touchDeletePage = false;
         m_touchBattery = false;
+        m_touchMusicChip = false;
         if (m_arrowAnimLeft.show > 0.5f && pageArrowRect(true).expanded(12.f).contains(tx, ty)) {
             m_touchArrowLeft = true;
             m_touchHitIndex = -1;
@@ -2096,6 +2109,12 @@ void WiiUMenuApp::handleTouch() {
         }
         if (m_deletePageShow > 0.5f && deletePageButtonRect().expanded(10.f).contains(tx, ty)) {
             m_touchDeletePage = true;
+            m_touchHitIndex = -1;
+            return;
+        }
+
+        if (m_musicChip && m_musicChip->isVisible() && m_musicChip->hitTest(tx, ty)) {
+            m_touchMusicChip = true;
             m_touchHitIndex = -1;
             return;
         }
@@ -2183,6 +2202,17 @@ void WiiUMenuApp::handleTouch() {
             if (deletePageAvailable() &&
                 deletePageButtonRect().expanded(10.f).contains(input.touchX(), input.touchY()))
                 showDeletePageDialog();
+            return;
+        }
+
+        if (m_touchMusicChip) {
+            m_touchMusicChip = false;
+            if (std::abs(input.touchDeltaX()) < 20.f && std::abs(input.touchDeltaY()) < 20.f &&
+                m_musicChip && m_musicChip->isVisible() &&
+                m_musicChip->hitTest(input.touchX(), input.touchY())) {
+                focusManager().setFocus(m_musicChip.get());
+                m_musicChip->activate();
+            }
             return;
         }
 

@@ -31,6 +31,7 @@
       "flip_to_grid": "Switch to grid view."
     },
     "roles": {
+      "music": "music",
       "button": "button",
       "game": "game",
       "game_card": "game card",
@@ -52,7 +53,8 @@
       "game_blocked": "A to show why this item is blocked. Plus for options.",
       "widget": "Plus for widget options. Y to move. Minus to change view.",
       "recently_played_widget": "A to launch the recently played game. Plus for widget options. Y to move.",
-      "now_playing_widget": "A to play or pause. Plus for next, previous, music source and widget options. Y to move."
+      "now_playing_widget": "A to play or pause. Plus for next, previous, music source and widget options. Y to move.",
+      "playlists_widget": "A to play this playlist. Plus for the next or previous playlist and widget options. Y to move."
     },
     "actions": {
       "edit_mode": "Directional pad to choose the new position. A to place or enter a folder. B to cancel.",
@@ -643,6 +645,10 @@
   "add": {
     "title": "Add"
   },
+  "musicchip": {
+    "open": "Music controls",
+    "hint": "A for the music controls."
+  },
   "widget": {
     "title": "Widget",
     "create": "Create new widget",
@@ -667,6 +673,17 @@
     "no_assets_title": "No widget images",
     "no_assets_desc": "Add PNG, JPG, WebP or GIF files to sdmc:/config/SwitchU/widgets/assets/ or to the active theme's widgets folder.",
     "now_playing": "Now playing",
+    "spotify_playlists": "Spotify playlists",
+    "playlists_header": "Spotify · Your playlists",
+    "playlists_empty": "No playlists found",
+    "playlists_loading": "Loading your library...",
+    "playlists_retry": "Plus to try again",
+    "playlists_a": "A to play",
+    "playlists_starting": "Starting...",
+    "next_playlist": "Next playlist",
+    "previous_playlist": "Previous playlist",
+    "reload_playlists": "Reload your playlists",
+    "play_playlist": "Play",
     "playing": "Playing",
     "paused": "Paused",
     "next": "Next track",

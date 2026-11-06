@@ -41,6 +41,20 @@ std::string switifyStatusText(const sw::NowPlaying& now) {
     return now.hasTrack ? std::string() : i18n.tr("switify.nothing", "Nothing playing");
 }
 
+std::string clockText(float seconds) {
+    const int total = std::max(0, static_cast<int>(seconds));
+    const int rest = total % 60;
+    return std::to_string(total / 60) + (rest < 10 ? ":0" : ":") + std::to_string(rest);
+}
+
+// "1:23 / 4:50" and how far along, for the 2x2 widget.
+template <class View>
+void setProgress(View& view, float position, float duration) {
+    if (duration <= 0.f) return;
+    view.progress = std::clamp(position / duration, 0.f, 1.f);
+    view.time = clockText(position) + " / " + clockText(duration);
+}
+
 } // namespace
 
 void WiiUMenuApp::pauseLocalForSpotify() {
@@ -291,6 +305,10 @@ WiiUMenuApp::NowPlayingView WiiUMenuApp::currentNowPlayingView() const {
             view.header += " · " + (now.playing ? playingLabel : pausedLabel);
             view.primary = now.title;
             view.secondary = now.artist;
+            view.playing = now.playing;
+            view.hasTrack = true;
+            setProgress(view, static_cast<float>(now.positionMs) / 1000.f,
+                        static_cast<float>(now.durationMs) / 1000.f);
             if (const auto cover = m_switify.cover())
                 view.coverKey = cover->key;
         } else {
@@ -313,6 +331,9 @@ WiiUMenuApp::NowPlayingView WiiUMenuApp::currentNowPlayingView() const {
     view.primary = track.title.empty() ? track.displayTitle() : track.title;
     view.secondary = track.title.empty() ? std::string() : track.artist;
     view.coverKey = "local:" + m_audio.currentTrackKey();
+    view.playing = m_audio.isPlaying();
+    view.hasTrack = true;
+    setProgress(view, m_audio.positionSeconds(), m_audio.durationSeconds());
     return view;
 }
 
@@ -321,6 +342,178 @@ void WiiUMenuApp::applyNowPlayingWidget(GlossyIcon& icon) const {
     icon.setWidgetText(m_nowPlayingView.primary, m_nowPlayingView.secondary);
     icon.setWidgetCover(m_nowPlayingCover.get());
     icon.setWidgetBars(m_musicBars.data(), static_cast<int>(m_musicBars.size()));
+    icon.setWidgetPlayback(m_nowPlayingView.progress, m_nowPlayingView.playing,
+                           m_nowPlayingView.time);
+}
+
+void WiiUMenuApp::applyPlaylistShelfWidget(GlossyIcon& icon) const {
+    auto& i18n = nxui::I18n::instance();
+    const auto& shelf = m_playlistShelf;
+    icon.setWidgetHeader(i18n.tr("widget.playlists_header", "Spotify · Your playlists"));
+    const auto now = m_switify.nowPlaying();
+    if (!now.controllable()) {
+        icon.setWidgetText(switifyStatusText(now),
+                           now.state == sw::ServiceState::NotRunning
+                               ? i18n.tr("switify.press_a", "Press A to start it") : std::string());
+    } else if (shelf.names.empty()) {
+        icon.setWidgetText(shelf.listed && shelf.step == PlaylistShelf::Step::Idle
+                               ? i18n.tr("widget.playlists_empty", "No playlists found")
+                               : i18n.tr("widget.playlists_loading", "Loading your library..."),
+                           i18n.tr("widget.playlists_retry", "Plus to try again"));
+    } else {
+        const auto index = static_cast<std::size_t>(shelf.index);
+        std::string detail = std::to_string(shelf.index + 1) + " / " +
+                             std::to_string(shelf.names.size());
+        detail += shelf.step == PlaylistShelf::Step::Idle
+            ? " · " + i18n.tr("widget.playlists_a", "A to play")
+            : " · " + i18n.tr("widget.playlists_starting", "Starting...");
+        if (!shelf.details[index].empty()) detail = shelf.details[index] + " · " + detail;
+        icon.setWidgetText(shelf.names[index], detail);
+    }
+    icon.setWidgetPlayback(0.f, false, {});
+}
+
+void WiiUMenuApp::refreshPlaylistShelfWidgets() {
+    if (!m_grid) return;
+    for (const auto& icon : m_grid->allIcons()) {
+        if (icon && icon->entryKind() == GridEntryKind::Widget &&
+            icon->widgetType() == switchu::widgets::WidgetType::SpotifyPlaylists)
+            applyPlaylistShelfWidget(*icon);
+    }
+}
+
+void WiiUMenuApp::stepPlaylistShelf(int delta) {
+    auto& shelf = m_playlistShelf;
+    if (shelf.names.empty()) {
+        shelf.listed = false; // ask the library again
+    } else {
+        const int count = static_cast<int>(shelf.names.size());
+        shelf.index = ((shelf.index + delta) % count + count) % count;
+        m_accessibility.announce(shelf.names[static_cast<std::size_t>(shelf.index)]);
+    }
+    refreshPlaylistShelfWidgets();
+}
+
+void WiiUMenuApp::playPlaylistShelf() {
+    auto& shelf = m_playlistShelf;
+    if (!m_switify.nowPlaying().controllable()) {
+        requestSwitifyPlayback(); // starting the service asks first
+        return;
+    }
+    if (shelf.names.empty()) {
+        shelf.listed = false;
+        refreshPlaylistShelfWidgets();
+        return;
+    }
+    if (shelf.step != PlaylistShelf::Step::Idle) return;
+    if (!spotifySource()) setMusicSource(true);
+    shelf.target = shelf.names[static_cast<std::size_t>(shelf.index)];
+    shelf.step = PlaylistShelf::Step::OpeningLibrary;
+    shelf.waited = 0.f;
+    m_switify.browse(sw::IpcCommand::BrowseLibrary);
+    DebugLog::log("[playlists] play '%s'", shelf.target.c_str());
+    refreshPlaylistShelfWidgets();
+}
+
+void WiiUMenuApp::pollPlaylistShelf() {
+    auto& shelf = m_playlistShelf;
+    const auto& widgets = m_widgetStore.all();
+    if (std::none_of(widgets.begin(), widgets.end(), [](const auto& widget) {
+            return widget.type == switchu::widgets::WidgetType::SpotifyPlaylists;
+        }))
+        return;
+    const bool browsingByHand = m_quickSettings && m_quickSettings->isActive();
+    const auto now = m_switify.nowPlaying();
+    if (!now.controllable()) {
+        shelf.step = PlaylistShelf::Step::Idle;
+        return;
+    }
+    if (shelf.step == PlaylistShelf::Step::Idle) {
+        // The list, once per session (Plus asks again), never under the user's
+        // own browsing in Quick Settings.
+        if (!shelf.listed && !browsingByHand) {
+            shelf.listed = true;
+            shelf.step = PlaylistShelf::Step::Listing;
+            shelf.waited = 0.f;
+            m_switify.browse(sw::IpcCommand::BrowseLibrary);
+            refreshPlaylistShelfWidgets();
+        }
+        return;
+    }
+
+    shelf.waited += kMusicLinkPeriod;
+    const auto page = m_switify.browsePage();
+    const auto finish = [this, &shelf](const char* why) {
+        if (why) DebugLog::log("[playlists] %s", why);
+        shelf.step = PlaylistShelf::Step::Idle;
+        m_spotifyBrowseRoot = true; // Quick Settings opens at its own root
+        refreshPlaylistShelfWidgets();
+    };
+    if (page.state == sw::kBrowseError || shelf.waited > 20.f) {
+        finish(page.state == sw::kBrowseError ? "browse failed" : "browse timed out");
+        return;
+    }
+    if (page.state != sw::kBrowseReady) return;
+
+    const auto isCollection = [](const sw::BrowseItem& item) {
+        return !item.track && item.kind != sw::kBrowseKindSection;
+    };
+    switch (shelf.step) {
+        case PlaylistShelf::Step::Listing:
+        case PlaylistShelf::Step::OpeningLibrary: {
+            if (page.depth != 0) return;
+            std::vector<std::string> names, details;
+            int found = -1;
+            for (std::size_t i = 0; i < page.items.size(); ++i) {
+                const auto& item = page.items[i];
+                if (!isCollection(item)) continue;
+                if (item.name == shelf.target) found = static_cast<int>(i);
+                names.push_back(item.name);
+                details.push_back(item.detail.empty() ? item.subtitle : item.detail);
+            }
+            // Keep the one on show where it was, if the library moved.
+            const std::string shown = shelf.names.empty()
+                ? std::string() : shelf.names[static_cast<std::size_t>(shelf.index)];
+            shelf.names = std::move(names);
+            shelf.details = std::move(details);
+            shelf.index = 0;
+            for (std::size_t i = 0; i < shelf.names.size(); ++i)
+                if (shelf.names[i] == shown) shelf.index = static_cast<int>(i);
+            if (shelf.step == PlaylistShelf::Step::Listing) {
+                DebugLog::log("[playlists] library has %zu", shelf.names.size());
+                finish(nullptr);
+                return;
+            }
+            if (found < 0) {
+                finish("playlist gone from the library");
+                return;
+            }
+            shelf.step = PlaylistShelf::Step::OpeningList;
+            shelf.waited = 0.f;
+            m_switify.browse(sw::IpcCommand::BrowseOpen, page.generation,
+                             static_cast<std::uint32_t>(found));
+            return;
+        }
+        case PlaylistShelf::Step::OpeningList: {
+            if (page.depth == 0) return;
+            std::vector<std::uint32_t> tracks;
+            for (std::size_t i = 0; i < page.items.size(); ++i)
+                if (page.items[i].track) tracks.push_back(static_cast<std::uint32_t>(i));
+            if (tracks.empty()) {
+                finish("playlist has no tracks");
+                return;
+            }
+            // With shuffle on, not always its first song.
+            const std::uint32_t pick = now.shuffle
+                ? tracks[static_cast<std::size_t>(std::rand()) % tracks.size()] : tracks.front();
+            pauseLocalForSpotify();
+            m_switify.browse(sw::IpcCommand::BrowsePlay, page.generation, pick);
+            finish(nullptr);
+            return;
+        }
+        case PlaylistShelf::Step::Idle:
+            return;
+    }
 }
 
 void WiiUMenuApp::refreshNowPlayingWidgets(const NowPlayingView& view) {
@@ -361,6 +554,7 @@ void WiiUMenuApp::refreshNowPlayingWidgets(const NowPlayingView& view) {
             // The previous frame may still sample the old cover.
             app().gpu().waitIdle();
             forEachWidget([](GlossyIcon& icon) { icon.setWidgetCover(nullptr); });
+            if (m_musicChip) m_musicChip->setCover(nullptr);
             m_nowPlayingCover.reset();
 #ifdef NXUI_BACKEND_DEKO3D
             app().renderer().reclaimReleasedTextureSlotsAfterIdle();
@@ -371,6 +565,11 @@ void WiiUMenuApp::refreshNowPlayingWidgets(const NowPlayingView& view) {
     }
     m_nowPlayingView = view;
     forEachWidget([this](GlossyIcon& icon) { applyNowPlayingWidget(icon); });
+    if (m_musicChip) {
+        m_musicChip->setCover(m_nowPlayingCover.get());
+        m_musicChip->setTrack(view.primary, view.secondary, view.playing);
+    }
+    placeMusicChip();
 }
 
 void WiiUMenuApp::resumeSpotifyAfterSleep() {
@@ -420,6 +619,8 @@ void WiiUMenuApp::updateMusicBars(float dt) {
                 && icons[static_cast<std::size_t>(i)]->widgetType()
                     == switchu::widgets::WidgetType::NowPlaying;
     }
+    if (!m_lockScreenActive && m_musicChip && m_musicChip->isVisible())
+        onScreen = true;
     if (m_screenOff)
         onScreen = false;
 
@@ -523,7 +724,10 @@ void WiiUMenuApp::renderLockMusic(nxui::Renderer& ren, float y, float a) {
 
 void WiiUMenuApp::pollMusicLink(float dt) {
     m_switify.start();
-    m_switify.setDemand(m_quickSettings && m_quickSettings->isActive()
+    // Pages are only read while someone browses: Quick Settings, or the
+    // playlists widget walking to a playlist.
+    m_switify.setDemand((m_quickSettings && m_quickSettings->isActive()) ||
+                                m_playlistShelf.step != PlaylistShelf::Step::Idle
         ? sw::Client::Demand::Active : sw::Client::Demand::Background);
 
     m_musicLinkPollIn -= dt;
@@ -543,6 +747,7 @@ void WiiUMenuApp::pollMusicLink(float dt) {
         }
     }
     m_spotifyWasPlaying = now.playing;
+    pollPlaylistShelf();
 
     if (m_switifyAutoPlay) {
         constexpr float kGiveUpSeconds = 30.f;
@@ -559,7 +764,6 @@ void WiiUMenuApp::pollMusicLink(float dt) {
         }
     }
 
-    const auto& widgets = m_widgetStore.all();
 #ifdef SWITCHU_MENU
     // Staying awake for the music is the opposite of what Battery Saver is for.
     const bool screenOffWanted = m_config.screenOffMusic && !m_config.batterySaver
@@ -589,11 +793,7 @@ void WiiUMenuApp::pollMusicLink(float dt) {
     }
 #endif
 
-    if (!(m_lockScreenActive && lockMusicOn()) &&
-        std::none_of(widgets.begin(), widgets.end(), [](const auto& widget) {
-            return widget.type == switchu::widgets::WidgetType::NowPlaying;
-        }))
-        return;
+    // Always: the music tile in the top bar shows it too.
     const NowPlayingView view = currentNowPlayingView();
     if (!(view == m_nowPlayingView) || view.coverKey != m_nowPlayingCoverKey)
         refreshNowPlayingWidgets(view);

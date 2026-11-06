@@ -57,6 +57,7 @@ inline constexpr std::uint32_t kBrowseIdle = 0;
 inline constexpr std::uint32_t kBrowseLoading = 1;
 inline constexpr std::uint32_t kBrowseReady = 2;
 inline constexpr std::uint32_t kBrowseError = 3;
+inline constexpr std::uint32_t kBrowseKindSection = 0;
 inline constexpr std::uint32_t kBrowseKindTrack = 1;
 
 // SwitifyIpcStatus, status ABI 1.

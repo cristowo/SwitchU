@@ -54,6 +54,7 @@ struct NowPlaying {
 
 struct BrowseItem {
     bool track = false;
+    std::uint32_t kind = 0; // kBrowseKind*
     std::string name;
     std::string subtitle;
     std::string detail;

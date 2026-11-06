@@ -628,6 +628,9 @@ void GlossyIcon::copyWidgetPresentationFrom(GlossyIcon& source) {
     m_widgetPrimary = source.m_widgetPrimary;
     m_widgetSecondary = source.m_widgetSecondary;
     m_widgetHeader = source.m_widgetHeader;
+    m_widgetProgress = source.m_widgetProgress;
+    m_widgetPlaying = source.m_widgetPlaying;
+    m_widgetTime = source.m_widgetTime;
     m_consoleBatteryPercent = source.m_consoleBatteryPercent;
     m_consoleBatteryCharging = source.m_consoleBatteryCharging;
     m_batteryConsoleIcon = source.m_batteryConsoleIcon;
@@ -942,6 +945,175 @@ void GlossyIcon::onContentRender(nxui::Renderer& ren) {
                     {logoArea.x, logoArea.y + (logoArea.height - measured.y * scale) * 0.5f},
                     m_font, nxui::Color::white().withAlpha(0.96f * m_opacity), scale);
             }
+            return;
+        }
+
+        // Now playing 1x1, "disc": the cover is the tile, the bars rise over its foot.
+        if (m_widgetType == switchu::widgets::WidgetType::NowPlaying &&
+            m_widgetColumns == 1 && m_widgetRows == 1) {
+            const float radius = std::max(9.f, rad - 5.f);
+            if (m_widgetGameIcon && m_widgetGameIcon->valid()) {
+                ren.drawTextureRounded(m_widgetGameIcon, inner, radius,
+                                       nxui::Color::white().withAlpha(m_opacity));
+            } else {
+                ren.drawRoundedRect(inner, m_loadingColor.withAlpha(0.13f * m_opacity), radius);
+                if (m_font && !m_widgetPrimary.empty()) {
+                    const nxui::Vec2 measured = m_font->measure(m_widgetPrimary);
+                    float scale = 0.56f * s;
+                    if (measured.x > 0.f)
+                        scale = std::min(scale, (inner.width - 16.f * s) / measured.x);
+                    ren.drawText(m_widgetPrimary, {inner.x + 8.f * s, inner.y + 10.f * s},
+                                 m_font, nxui::Color::white().withAlpha(0.92f * m_opacity), scale);
+                }
+            }
+            if (m_widgetBars && m_widgetBarCount > 0) {
+                const float step = (inner.width - 16.f * s) / static_cast<float>(m_widgetBarCount);
+                const float maxHeight = inner.height * 0.38f;
+                const float barWidth = step * 0.64f;
+                for (int i = 0; i < m_widgetBarCount; ++i) {
+                    const float level = m_widgetBars[i];
+                    if (level < 0.01f) continue;
+                    const float height = 2.f * s + maxHeight * level;
+                    const nxui::Rect bar{inner.x + 8.f * s + step * static_cast<float>(i) + step * 0.18f,
+                                         inner.bottom() - 8.f * s - height, barWidth, height};
+                    // A shadow keeps them readable on a bright cover.
+                    ren.drawRoundedRect({bar.x + 1.f, bar.y + 1.f, bar.width, bar.height},
+                                        nxui::Color(0.f, 0.f, 0.f, 0.30f * m_opacity), barWidth * 0.5f);
+                    ren.drawRoundedRect(bar, nxui::Color::white().withAlpha((0.55f + 0.4f * level) * m_opacity),
+                                        barWidth * 0.5f);
+                }
+            }
+            if (!m_widgetPlaying) {
+                // Paused: a pause badge in the corner.
+                const float badge = 24.f * s;
+                const nxui::Vec2 c{inner.right() - 8.f * s - badge * 0.5f,
+                                   inner.y + 8.f * s + badge * 0.5f};
+                ren.drawCircle(c, badge * 0.5f, nxui::Color(0.f, 0.f, 0.f, 0.50f * m_opacity));
+                const float barH = badge * 0.42f;
+                const float barW = badge * 0.13f;
+                for (float dx : {-badge * 0.13f, badge * 0.13f})
+                    ren.drawRoundedRect({c.x + dx - barW * 0.5f, c.y - barH * 0.5f, barW, barH},
+                                        nxui::Color::white().withAlpha(0.95f * m_opacity), barW * 0.5f);
+            }
+            return;
+        }
+
+        // Now playing 2x2, "player": cover and song, the bars, then progress.
+        if (m_widgetType == switchu::widgets::WidgetType::NowPlaying && m_widgetRows >= 2) {
+            ren.drawRoundedRect(inner, m_loadingColor.withAlpha(0.13f * m_opacity),
+                                std::max(9.f, rad - 5.f));
+            if (!m_font) return;
+            const float pad = 12.f * s;
+            const float headerScale = 0.46f * s;
+            ren.drawText(m_widgetHeader, {inner.x + pad, inner.y + pad * 0.8f}, m_font,
+                         nxui::Color::white().withAlpha(0.68f * m_opacity), headerScale);
+            const float headerHeight = m_font->measure(m_widgetHeader).y * headerScale;
+            const float side = std::min(inner.height * 0.46f, inner.width * 0.42f);
+            const nxui::Rect cover{inner.x + pad, inner.y + pad + headerHeight + 6.f * s, side, side};
+            if (m_widgetGameIcon && m_widgetGameIcon->valid())
+                ren.drawTextureRounded(m_widgetGameIcon, cover, std::max(8.f, 12.f * s),
+                                       nxui::Color::white().withAlpha(m_opacity));
+            else
+                ren.drawRoundedRect(cover, nxui::Color::white().withAlpha(0.10f * m_opacity),
+                                    std::max(8.f, 12.f * s));
+
+            const float textX = cover.right() + 12.f * s;
+            const float textWidth = std::max(20.f, inner.right() - pad - textX);
+            const auto fitted = [&](const std::string& text, float base) {
+                const nxui::Vec2 measured = m_font->measure(text);
+                float scale = base * s;
+                if (measured.x > 0.f) scale = std::min(scale, textWidth / measured.x);
+                return std::max(0.36f * s, scale);
+            };
+            const float titleScale = fitted(m_widgetPrimary, 0.68f);
+            const float artistScale = fitted(m_widgetSecondary, 0.54f);
+            const float titleHeight = m_font->measure(m_widgetPrimary).y * titleScale;
+            const float artistHeight = m_font->measure(m_widgetSecondary).y * artistScale;
+            const float textTop = cover.y + (cover.height - titleHeight - artistHeight - 6.f * s) * 0.5f;
+            ren.pushClipRect({textX, cover.y, textWidth, cover.height});
+            ren.drawText(m_widgetPrimary, {textX, textTop}, m_font,
+                         nxui::Color::white().withAlpha(0.96f * m_opacity), titleScale);
+            ren.drawText(m_widgetSecondary, {textX, textTop + titleHeight + 6.f * s}, m_font,
+                         nxui::Color::white().withAlpha(0.72f * m_opacity), artistScale);
+            ren.popClipRect();
+
+            const float timeScale = 0.42f * s;
+            const float timeHeight = m_font->measure("0:00").y * timeScale;
+            const float trackY = inner.bottom() - pad - timeHeight - 8.f * s;
+            const float barsTop = cover.bottom() + 8.f * s;
+            const float barsBottom = trackY - 8.f * s;
+            const float barsWidth = inner.width - 2.f * pad;
+            if (m_widgetBars && m_widgetBarCount > 0 && barsBottom > barsTop) {
+                const float step = barsWidth / static_cast<float>(m_widgetBarCount);
+                const float barWidth = step * 0.6f;
+                for (int i = 0; i < m_widgetBarCount; ++i) {
+                    const float level = m_widgetBars[i];
+                    const float height = 2.f * s + (barsBottom - barsTop - 2.f * s) * level;
+                    ren.drawRoundedRect({inner.x + pad + step * static_cast<float>(i) + step * 0.2f,
+                                         barsBottom - height, barWidth, height},
+                                        nxui::Color::white().withAlpha((0.22f + 0.6f * level) * m_opacity),
+                                        barWidth * 0.5f);
+                }
+            }
+            if (m_widgetProgress >= 0.f) {
+                const float trackH = 4.f * s;
+                const nxui::Rect track{inner.x + pad, trackY, barsWidth, trackH};
+                ren.drawRoundedRect(track, nxui::Color::white().withAlpha(0.20f * m_opacity), trackH * 0.5f);
+                const float filled = barsWidth * std::clamp(m_widgetProgress, 0.f, 1.f);
+                if (filled > 0.5f)
+                    ren.drawRoundedRect({track.x, track.y, filled, trackH},
+                                        nxui::Color::white().withAlpha(0.90f * m_opacity), trackH * 0.5f);
+                ren.drawCircle({track.x + filled, track.y + trackH * 0.5f}, trackH * 1.3f,
+                               nxui::Color::white().withAlpha(m_opacity));
+                ren.drawText(m_widgetTime, {track.x, trackY + trackH + 5.f * s}, m_font,
+                             nxui::Color::white().withAlpha(0.66f * m_opacity), timeScale);
+            }
+            return;
+        }
+
+        // Spotify playlists: a record for the cover, the playlist and where it
+        // sits in your library. A plays it; Plus turns to the next one.
+        if (m_widgetType == switchu::widgets::WidgetType::SpotifyPlaylists) {
+            ren.drawRoundedRect(inner, m_loadingColor.withAlpha(0.13f * m_opacity),
+                                std::max(9.f, rad - 5.f));
+            if (!m_font) return;
+            const float pad = 10.f * s;
+            const float headerScale = 0.48f * s;
+            ren.drawText(m_widgetHeader, {inner.x + pad, inner.y + 8.f * s}, m_font,
+                         nxui::Color::white().withAlpha(0.68f * m_opacity), headerScale);
+            const float headerHeight = m_font->measure(m_widgetHeader).y * headerScale;
+            const float bodyTop = inner.y + 12.f * s + headerHeight;
+            const float bodyHeight = std::max(28.f, inner.bottom() - bodyTop - 8.f * s);
+            const float side = std::min(bodyHeight, inner.width * 0.30f);
+            const nxui::Vec2 c{inner.x + pad + side * 0.5f, bodyTop + bodyHeight * 0.5f};
+            // The record: grooves, then a label in the theme's colour.
+            ren.drawCircle(c, side * 0.5f, nxui::Color(0.05f, 0.05f, 0.06f, 0.92f * m_opacity), 48);
+            for (float ring : {0.44f, 0.37f, 0.30f})
+                ren.drawCircle(c, side * ring, nxui::Color(1.f, 1.f, 1.f, 0.05f * m_opacity), 48);
+            ren.drawCircle(c, side * 0.25f, nxui::Color(0.05f, 0.05f, 0.06f, 0.92f * m_opacity), 48);
+            ren.drawCircle(c, side * 0.20f, m_loadingColor.withAlpha(0.95f * m_opacity), 32);
+            ren.drawCircle(c, side * 0.04f, nxui::Color(0.05f, 0.05f, 0.06f, m_opacity), 16);
+            // A shine on the grooves; it turns while a playlist starts.
+            const float angle = m_widgetPlaying ? m_widgetProgress * 6.2831853f : 0.7f;
+            ren.drawCircle({c.x + std::cos(angle) * side * 0.36f, c.y - std::sin(angle) * side * 0.36f},
+                           side * 0.05f, nxui::Color(1.f, 1.f, 1.f, 0.22f * m_opacity), 16);
+
+            const float textX = inner.x + pad + side + 12.f * s;
+            const float textWidth = std::max(20.f, inner.right() - textX - pad);
+            const nxui::Vec2 nameMeasure = m_font->measure(m_widgetPrimary);
+            float nameScale = 0.62f * s;
+            if (nameMeasure.x > 0.f) nameScale = std::min(nameScale, textWidth / nameMeasure.x);
+            nameScale = std::max(0.38f * s, nameScale);
+            const nxui::Vec2 detailMeasure = m_font->measure(m_widgetSecondary);
+            float detailScale = 0.50f * s;
+            if (detailMeasure.x > 0.f) detailScale = std::min(detailScale, textWidth / detailMeasure.x);
+            const float nameHeight = nameMeasure.y * nameScale;
+            const float detailHeight = detailMeasure.y * detailScale;
+            const float textTop = bodyTop + (bodyHeight - nameHeight - detailHeight - 4.f * s) * 0.5f;
+            ren.drawText(m_widgetPrimary, {textX, textTop}, m_font,
+                         nxui::Color::white().withAlpha(0.96f * m_opacity), nameScale);
+            ren.drawText(m_widgetSecondary, {textX, textTop + nameHeight + 4.f * s}, m_font,
+                         nxui::Color::white().withAlpha(0.72f * m_opacity), detailScale);
             return;
         }
 

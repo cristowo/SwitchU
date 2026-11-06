@@ -14,6 +14,7 @@ const char* typeKey(WidgetType type) {
         case WidgetType::Batteries: return "batteries";
         case WidgetType::NowPlaying: return "now_playing";
         case WidgetType::Calendar: return "calendar";
+        case WidgetType::SpotifyPlaylists: return "spotify_playlists";
     }
     return "clock";
 }
@@ -28,6 +29,7 @@ const char* fallbackName(WidgetType type) {
         case WidgetType::Batteries: return "Batteries";
         case WidgetType::NowPlaying: return "Now playing";
         case WidgetType::Calendar: return "Calendar";
+        case WidgetType::SpotifyPlaylists: return "Spotify playlists";
     }
     return "Widget";
 }
@@ -36,7 +38,8 @@ bool parseType(const std::string& value, WidgetType& type) {
     for (WidgetType candidate : {WidgetType::Clock, WidgetType::RecentlyPlayed,
                                  WidgetType::RecentPlaytime, WidgetType::RandomScreenshot,
                                  WidgetType::ImagePin, WidgetType::Batteries,
-                                 WidgetType::NowPlaying, WidgetType::Calendar}) {
+                                 WidgetType::NowPlaying, WidgetType::Calendar,
+                                 WidgetType::SpotifyPlaylists}) {
         if (value == typeKey(candidate)) {
             type = candidate;
             return true;
@@ -49,7 +52,8 @@ std::vector<WidgetSize> supportedSizes(WidgetType type, AppLayoutMode layout) {
     if (layout == AppLayoutMode::DynamicLine) {
         if (type == WidgetType::RecentlyPlayed || type == WidgetType::RecentPlaytime ||
             type == WidgetType::RandomScreenshot || type == WidgetType::Batteries ||
-            type == WidgetType::NowPlaying || type == WidgetType::Calendar)
+            type == WidgetType::NowPlaying || type == WidgetType::Calendar ||
+            type == WidgetType::SpotifyPlaylists)
             return {};
         return {{1, 1}};
     }
@@ -68,6 +72,9 @@ std::vector<WidgetSize> supportedSizes(WidgetType type, AppLayoutMode layout) {
         case WidgetType::Batteries:
             return {{2, 1}, {2, 2}};
         case WidgetType::NowPlaying:
+            // 2x1 first: what a saved widget of no known size becomes.
+            return {{2, 1}, {1, 1}, {2, 2}};
+        case WidgetType::SpotifyPlaylists:
             return {{2, 1}};
         case WidgetType::Calendar:
             return {{2, 2}, {1, 1}};

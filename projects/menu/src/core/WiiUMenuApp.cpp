@@ -1347,6 +1347,22 @@ void WiiUMenuApp::placeLayoutFlipButton() {
     const float y = clock.y + (clock.height - kSize) * 0.5f;
     m_layoutFlip->setRect({x, y, kSize, kSize});
     m_layoutFlip->setVisible(m_topHud && m_topHud->isVisible() && m_openFolderId == 0);
+    placeMusicChip();
+}
+
+void WiiUMenuApp::placeMusicChip() {
+    if (!m_musicChip || !m_profileLock)
+        return;
+    const nxui::Rect lock = m_profileLock->rect();
+    m_musicChip->setRect({lock.x + lock.width + 12.f, lock.y, lock.width, lock.height});
+    const bool show = m_topHud && m_topHud->isVisible() && m_openFolderId == 0 &&
+                      m_nowPlayingView.hasTrack;
+    if (show == m_musicChip->isVisible())
+        return;
+    if (!show && focusManager().current() == m_musicChip.get())
+        focusManager().setFocus(m_profileLock.get());
+    m_musicChip->setVisible(show);
+    wireProfileLockNavigation();
 }
 
 bool WiiUMenuApp::keepLayoutFlipFocus() const {
@@ -1578,6 +1594,29 @@ void WiiUMenuApp::wireProfileLockNavigation() {
         }
         if (m_grid)
             m_grid->setDynamicLineUpTarget(chromeUp);
+    }
+
+    // The music tile, when shown, sits between the profile and what followed it.
+    if (m_musicChip && m_musicChip->isVisible()) {
+        auto* chip = m_musicChip.get();
+        nxui::Widget* next = lock->getCustomNavigation(nxui::FocusDirection::RIGHT);
+        if (next == lock) next = nullptr;
+        lock->setCustomNavigation(nxui::FocusDirection::RIGHT, chip);
+        chip->setCustomNavigation(nxui::FocusDirection::LEFT, lock);
+        chip->setCustomNavigation(nxui::FocusDirection::RIGHT, next ? next : chip);
+        chip->setCustomNavigation(nxui::FocusDirection::UP, chip);
+        if (next && next->getCustomNavigation(nxui::FocusDirection::LEFT) == lock)
+            next->setCustomNavigation(nxui::FocusDirection::LEFT, chip);
+        nxui::Widget* down = lock->getCustomNavigation(nxui::FocusDirection::DOWN);
+        chip->setCustomNavigation(nxui::FocusDirection::DOWN, down);
+        if (!down) {
+            chip->removeAction(static_cast<uint64_t>(nxui::Button::DDown));
+            chip->removeAction(static_cast<uint64_t>(nxui::Button::LStickD));
+            chip->removeAction(static_cast<uint64_t>(nxui::Button::RStickD));
+            chip->addDirectionAction(nxui::FocusDirection::DOWN, [this]() {
+                focusHomeGridFallback();
+            });
+        }
     }
 }
 
@@ -2833,6 +2872,8 @@ std::string WiiUMenuApp::widgetTypeLabel(switchu::widgets::WidgetType type) cons
             return i18n.tr("widget.now_playing", "Now playing");
         case switchu::widgets::WidgetType::Calendar:
             return i18n.tr("widget.calendar", "Calendar");
+        case switchu::widgets::WidgetType::SpotifyPlaylists:
+            return i18n.tr("widget.spotify_playlists", "Spotify playlists");
     }
     return i18n.tr("widget.title", "Widget");
 }
@@ -3798,6 +3839,7 @@ void WiiUMenuApp::showWidgetTypeMenu(int targetSlot, const nxui::Rect& anchor) {
                       switchu::widgets::WidgetType::ImagePin,
                       switchu::widgets::WidgetType::Batteries,
                       switchu::widgets::WidgetType::NowPlaying,
+                      switchu::widgets::WidgetType::SpotifyPlaylists,
                       switchu::widgets::WidgetType::Calendar}) {
         if (switchu::widgets::supportedSizes(type, m_appLayoutMode).empty())
             continue;
@@ -3912,6 +3954,22 @@ void WiiUMenuApp::showWidgetOptionsMenu(std::uint32_t widgetId, int slot,
                 setMusicSource(!spotify);
                 m_contextMenu->hide();
             }});
+    }
+    if (widget->type == switchu::widgets::WidgetType::SpotifyPlaylists) {
+        items.push_back({i18n.tr("widget.next_playlist", "Next playlist"), [this]() {
+            stepPlaylistShelf(1);
+            m_contextMenu->hide();
+        }});
+        items.push_back({i18n.tr("widget.previous_playlist", "Previous playlist"), [this]() {
+            stepPlaylistShelf(-1);
+            m_contextMenu->hide();
+        }});
+        items.push_back({i18n.tr("widget.reload_playlists", "Reload your playlists"), [this]() {
+            m_playlistShelf.names.clear();
+            m_playlistShelf.details.clear();
+            stepPlaylistShelf(0);
+            m_contextMenu->hide();
+        }});
     }
     for (const auto size : switchu::widgets::supportedSizes(widget->type, m_appLayoutMode)) {
         const bool available = canPlaceWidget(slot, size, widgetId);
@@ -6079,6 +6137,7 @@ std::shared_ptr<GlossyIcon> WiiUMenuApp::makeIcon(const AppEntry& entry) {
             case switchu::widgets::WidgetType::Batteries:
             case switchu::widgets::WidgetType::NowPlaying:
             case switchu::widgets::WidgetType::Calendar:
+            case switchu::widgets::WidgetType::SpotifyPlaylists:
                 break;
         }
         std::string assetPath = entry.widgetType == switchu::widgets::WidgetType::RandomScreenshot
@@ -6107,6 +6166,16 @@ std::shared_ptr<GlossyIcon> WiiUMenuApp::makeIcon(const AppEntry& entry) {
                 "A to play or pause. Plus for next, previous, music source and widget options. Y to move."));
             icon->setOnActivate([this]() {
                 toggleActiveMusic();
+                m_audio.playSfx(Sfx::Activate);
+            });
+        }
+        if (entry.widgetType == switchu::widgets::WidgetType::SpotifyPlaylists) {
+            applyPlaylistShelfWidget(*icon);
+            icon->setAccessibilityHint(i18n.tr(
+                "accessibility.hints.playlists_widget",
+                "A to play this playlist. Plus for the next or previous playlist and widget options. Y to move."));
+            icon->setOnActivate([this]() {
+                playPlaylistShelf();
                 m_audio.playSfx(Sfx::Activate);
             });
         }
@@ -6146,7 +6215,8 @@ std::shared_ptr<GlossyIcon> WiiUMenuApp::makeIcon(const AppEntry& entry) {
                 activateApplication(raw, appEntry, recentTitleId, recentTitle);
             });
 #endif
-        } else if (entry.widgetType != switchu::widgets::WidgetType::NowPlaying) {
+        } else if (entry.widgetType != switchu::widgets::WidgetType::NowPlaying &&
+                   entry.widgetType != switchu::widgets::WidgetType::SpotifyPlaylists) {
             icon->setAccessibilityHint(i18n.tr(
                 "accessibility.hints.widget", "Plus for widget options. Y to move."));
         }
@@ -6388,6 +6458,18 @@ void WiiUMenuApp::buildGrid() {
     m_profileLock->setOnActivate([this]() {
         m_audio.playSfx(Sfx::Activate);
         openProfileCarousel();
+    });
+
+    m_musicChip = std::make_shared<MusicChipButton>();
+    m_musicChip->setCornerRadius(m_theme.cellCornerRadius);
+    m_musicChip->setTheme(&m_theme);
+    m_musicChip->setBars(m_musicBars.data(), static_cast<int>(m_musicBars.size()));
+    m_musicChip->setVisible(false); // until there is a song (placeMusicChip)
+    m_musicChip->setOnActivate([this]() {
+        if (m_editMode || leaveSplashActive())
+            return;
+        m_audio.playSfx(Sfx::Activate);
+        openQuickSettings(); // opens on play/pause
     });
 
     loadProfiles(!m_fastReturnRequested);
@@ -6786,6 +6868,8 @@ void WiiUMenuApp::buildGrid() {
     // flip control remains independently focusable / tappable.
     if (m_layoutFlip)
         m_contentLayer->addChild(m_layoutFlip);
+    if (m_musicChip)
+        m_contentLayer->addChild(m_musicChip);
     m_contentLayer->addChild(m_titlePill);
     m_contentLayer->addChild(m_pageIndicator);
 
@@ -9791,6 +9875,9 @@ std::vector<WiiUMenuApp::ActionHint> WiiUMenuApp::buildActionHints() {
                 if (entry->widgetType == switchu::widgets::WidgetType::NowPlaying)
                     add(buttonGlyph(nxui::Button::A),
                         i18n.tr("widget.play_pause", "Play/Pause"));
+                if (entry->widgetType == switchu::widgets::WidgetType::SpotifyPlaylists)
+                    add(buttonGlyph(nxui::Button::A),
+                        i18n.tr("widget.play_playlist", "Play"));
                 add(buttonGlyph(nxui::Button::Plus), i18n.tr("hint.options", "Options"));
                 if (m_openFolderId == 0)
                     add(buttonGlyph(nxui::Button::Y), i18n.tr("hint.move", "Move"));
@@ -9845,6 +9932,8 @@ std::vector<WiiUMenuApp::ActionHint> WiiUMenuApp::buildActionHints() {
             add(buttonGlyph(nxui::Button::A), i18n.tr("profilelock.choose", "Change profile"));
         if (m_layoutFlip && m_layoutFlip.get() == cur)
             add(buttonGlyph(nxui::Button::A), i18n.tr("hint.switch_layout", "Switch view"));
+        if (m_musicChip && m_musicChip.get() == cur)
+            add(buttonGlyph(nxui::Button::A), i18n.tr("musicchip.open", "Music controls"));
         if (m_battery && m_battery.get() == cur)
             add(buttonGlyph(nxui::Button::A), i18n.tr("quick_settings.title", "Quick Settings"));
     }

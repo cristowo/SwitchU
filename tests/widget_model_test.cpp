@@ -17,6 +17,7 @@ int main() {
         WidgetType::Batteries,
         WidgetType::NowPlaying,
         WidgetType::Calendar,
+        WidgetType::SpotifyPlaylists,
     };
 
     for (const WidgetType type : types) {
@@ -24,7 +25,8 @@ int main() {
             type, AppLayoutMode::DynamicLine);
         if (type == WidgetType::RecentlyPlayed || type == WidgetType::RecentPlaytime ||
             type == WidgetType::Batteries || type == WidgetType::NowPlaying ||
-            type == WidgetType::RandomScreenshot || type == WidgetType::Calendar) {
+            type == WidgetType::RandomScreenshot || type == WidgetType::Calendar ||
+            type == WidgetType::SpotifyPlaylists) {
             assert(singleRow.empty());
             assert((switchu::widgets::validatedSize(
                         type, {2, 1}, AppLayoutMode::DynamicLine) == WidgetSize{0, 0}));
@@ -88,5 +90,10 @@ int main() {
     assert(parsed == WidgetType::NowPlaying);
     assert((switchu::widgets::supportedSizes(
                 WidgetType::NowPlaying, AppLayoutMode::Grid) ==
-            std::vector<WidgetSize>{{2, 1}}));
+            std::vector<WidgetSize>{{2, 1}, {1, 1}, {2, 2}}));
+    // A saved size that is not offered falls back to the 2x1 card.
+    assert((switchu::widgets::validatedSize(
+                WidgetType::NowPlaying, {1, 2}, AppLayoutMode::Grid) == WidgetSize{2, 1}));
+    assert(switchu::widgets::parseType("spotify_playlists", parsed));
+    assert(parsed == WidgetType::SpotifyPlaylists);
 }

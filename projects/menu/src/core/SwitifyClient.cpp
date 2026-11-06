@@ -357,6 +357,7 @@ void Client::pollBrowse() {
                 return; // The page moved on; the next poll reads the new one.
             BrowseItem entry;
             entry.track = item.kind == kBrowseKindTrack;
+            entry.kind = item.kind;
             entry.name = boundedString(item.name);
             entry.subtitle = boundedString(item.subtitle);
             entry.detail = boundedString(item.detail);

@@ -106,6 +106,12 @@ public:
         m_widgetBars = levels;
         m_widgetBarCount = count;
     }
+    // Now playing: progress 0-1 (below 0: none) and its times, for 2x2.
+    void setWidgetPlayback(float progress, bool playing, std::string time) {
+        m_widgetProgress = progress;
+        m_widgetPlaying = playing;
+        m_widgetTime = std::move(time);
+    }
     void setWidgetGameAssets(std::uint64_t titleId,
                              const std::string& heroPath,
                              const std::string& logoPath,
@@ -235,6 +241,9 @@ private:
     std::string m_widgetPrimary;
     std::string m_widgetSecondary;
     std::string m_widgetHeader;
+    float m_widgetProgress = -1.f;
+    bool m_widgetPlaying = false;
+    std::string m_widgetTime;
     std::string m_widgetAssetPath;
     bool m_widgetAssetLoadAttempted = false;
     std::shared_ptr<WidgetGifDecodeState> m_widgetGifDecode;

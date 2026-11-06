@@ -3767,6 +3767,8 @@ void WiiUMenuApp::applyHomeChrome() {
         m_folderHeaderLabel->setTextColor(chrome.textPrimary);
     if (m_profileLock)
         m_profileLock->setTheme(&m_homeChrome);
+    if (m_musicChip)
+        m_musicChip->setTheme(&m_homeChrome);
     if (m_layoutFlip)
         m_layoutFlip->setTheme(&m_homeChrome);
 

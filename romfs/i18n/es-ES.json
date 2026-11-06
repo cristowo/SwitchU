@@ -612,6 +612,7 @@
       "dynamic_line": "Línea central"
     },
     "roles": {
+      "music": "música",
       "button": "botón",
       "game": "juego",
       "game_card": "tarjeta de juego",
@@ -634,7 +635,8 @@
       "game_blocked": "A para mostrar el motivo del bloqueo.",
       "widget": "Más para las opciones del widget. Y para mover. Menos para cambiar la vista.",
       "recently_played_widget": "A para iniciar el juego jugado recientemente. Más para las opciones del widget. Y para mover.",
-      "now_playing_widget": "A para reproducir o pausar. Más para siguiente, anterior, fuente de música y opciones del widget. Y para mover."
+      "now_playing_widget": "A para reproducir o pausar. Más para siguiente, anterior, fuente de música y opciones del widget. Y para mover.",
+      "playlists_widget": "A para reproducir esta playlist. Más para la siguiente o la anterior y las opciones del widget. Y para mover."
     },
     "actions": {
       "edit_mode": "Cruz direccional para elegir la nueva posición. Y para colocar. B para cancelar.",
@@ -875,6 +877,10 @@
   "add": {
     "title": "Añadir"
   },
+  "musicchip": {
+    "open": "Controles de música",
+    "hint": "A para los controles de música."
+  },
   "widget": {
     "title": "Widget",
     "create": "Crear widget nuevo",
@@ -899,6 +905,17 @@
     "no_assets_title": "Sin imágenes de widget",
     "no_assets_desc": "Añada archivos PNG, JPG, WebP o GIF a sdmc:/config/SwitchU/widgets/assets/ o a la carpeta de widgets del tema activo.",
     "now_playing": "Reproduciendo",
+    "spotify_playlists": "Playlists de Spotify",
+    "playlists_header": "Spotify · Tus playlists",
+    "playlists_empty": "No hay playlists",
+    "playlists_loading": "Cargando tu biblioteca...",
+    "playlists_retry": "Más para reintentar",
+    "playlists_a": "A para reproducir",
+    "playlists_starting": "Empezando...",
+    "next_playlist": "Siguiente playlist",
+    "previous_playlist": "Playlist anterior",
+    "reload_playlists": "Recargar tus playlists",
+    "play_playlist": "Reproducir",
     "playing": "Sonando",
     "paused": "En pausa",
     "next": "Canción siguiente",

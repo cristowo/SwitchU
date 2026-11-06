@@ -17,6 +17,7 @@ enum class WidgetType : std::uint8_t {
     Batteries,
     NowPlaying,
     Calendar,
+    SpotifyPlaylists,
 };
 
 struct WidgetSize {

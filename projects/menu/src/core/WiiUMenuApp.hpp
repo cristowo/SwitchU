@@ -25,6 +25,7 @@
 #include "widgets/PageIndicator.hpp"
 #include "widgets/ProfileCarouselScreen.hpp"
 #include "widgets/ProfileLockButton.hpp"
+#include "widgets/MusicChipButton.hpp"
 #include "widgets/FolderBackdrop.hpp"
 #include "widgets/SteamGridDbBackdrop.hpp"
 #include "widgets/FolderZoom.hpp"
@@ -128,6 +129,7 @@ private:
     void finishProfileLoading();
     void refreshProfileLockButton();
     void wireProfileLockNavigation();
+    void placeMusicChip();
     void focusHomeGridFallback();
     void ensureHomeTitleFocus(std::uint64_t preferredTitleId = 0);
     std::uint64_t mostRecentlyOpenedTitleId() const;
@@ -204,8 +206,30 @@ private:
         std::string primary;
         std::string secondary;
         std::string coverKey;
+        bool playing = false;
+        bool hasTrack = false; // a song to show, playing or paused
+        float progress = -1.f; // 0-1; below 0 when unknown
+        std::string time;      // "1:23 / 4:50"
         bool operator==(const NowPlayingView&) const = default;
     };
+    // The Spotify playlists widget: your library's playlists, one at a time.
+    // Playing one walks Switify's browser (library, playlist, first track)
+    // a page per poll.
+    struct PlaylistShelf {
+        enum class Step { Idle, Listing, OpeningLibrary, OpeningList };
+        std::vector<std::string> names;
+        std::vector<std::string> details;
+        int index = 0;
+        Step step = Step::Idle;
+        std::string target;
+        float waited = 0.f;
+        bool listed = false; // asked once; Plus can ask again
+    };
+    void pollPlaylistShelf();
+    void playPlaylistShelf();
+    void stepPlaylistShelf(int delta);
+    void applyPlaylistShelfWidget(GlossyIcon& icon) const;
+    void refreshPlaylistShelfWidgets();
     bool spotifySource() const { return m_config.musicSource == 1; }
     // HOME's own songs start by themselves only when Spotify is not the music:
     // never two sources at once. (Spotify started from the overlay during a game
@@ -701,6 +725,9 @@ private:
     std::shared_ptr<nxui::Box> m_leftSidebar;
     std::shared_ptr<nxui::Box> m_rightSidebar;
     std::shared_ptr<ProfileLockButton> m_profileLock;
+    // Beside the profile tile: what is playing; opens Quick Settings.
+    std::shared_ptr<MusicChipButton> m_musicChip;
+    bool m_touchMusicChip = false;
     std::shared_ptr<FolderBackdrop> m_folderBackdrop;
     std::shared_ptr<SteamGridDbBackdrop> m_steamGridDbBackdrop;
     std::shared_ptr<FolderZoom>     m_folderZoom;
@@ -800,6 +827,7 @@ private:
     bool m_lockMusicPlaying = false;
     bool m_lockMusicKeep = false; // paused from the lock: its controls must stay
     std::array<float, SpectrumAnalyzer::kBands> m_musicBars{};
+    PlaylistShelf m_playlistShelf;
     // Backlight off, console awake, music playing (daemon: enterScreenOff).
     bool m_screenOff = false;
     float m_screenOffSilence = 0.f;
