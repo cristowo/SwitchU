@@ -33,6 +33,7 @@ public:
     void refreshArtworkPresence(bool hasHero, bool hasLogo, bool hasIcon,
                                 bool hasPoster, bool hasPosterWide);
     void onMove(VoidCb cb) { m_moveCb = std::move(cb); }
+    void onRename(VoidCb cb) { m_renameCb = std::move(cb); }
     void onResize(IntCb cb) { m_resizeCb = std::move(cb); }
     void onCloseSoftware(VoidCb cb) { m_closeSoftwareCb = std::move(cb); }
     void onDeleteSoftware(VoidCb cb) { m_deleteSoftwareCb = std::move(cb); }
@@ -52,6 +53,7 @@ protected:
 private:
     GameInfo m_game;
     VoidCb m_moveCb;
+    VoidCb m_renameCb;
     IntCb m_resizeCb;
     VoidCb m_closeSoftwareCb;
     VoidCb m_deleteSoftwareCb;

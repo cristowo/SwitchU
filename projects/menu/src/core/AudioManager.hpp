@@ -66,6 +66,8 @@ public:
     const std::vector<MusicTrackInfo>& tracks() const { return m_trackInfos; }
     int trackCount() const { return static_cast<int>(m_trackInfos.size()); }
     int currentIndex() const { return m_current; }
+    // Changes whenever tracks() gains, loses or reorders entries.
+    std::uint32_t playlistRevision() const { return m_playlistRevision.load(); }
     std::string currentDisplayTitle() const;
     std::vector<std::string> playlistFilenames() const;
     std::vector<std::string> playlistOrderKeys() const;
@@ -94,6 +96,12 @@ public:
     bool shuffle() const { return m_shuffle; }
     void setRepeatMode(MusicRepeatMode mode);
     MusicRepeatMode repeatMode() const { return m_repeat; }
+
+    // What is being heard, as levels 0..1 from 50 Hz to 16 kHz. Only measured
+    // while enabled: nothing else needs it.
+    static constexpr int kSpectrumBands = 32; // SpectrumAnalyzer::kBands
+    void setSpectrumEnabled(bool enabled);
+    void spectrum(float* out) const;
 
     void update(float dt);
     float positionSeconds() const { return m_positionSeconds; }
@@ -135,6 +143,8 @@ public:
 private:
     static std::atomic<AudioManager*> s_instance;
     static void onTrackFinished();
+    void handleTrackFinished();
+    std::atomic<bool> m_trackFinishedPending{false};
 
     void applyMusicVolume();
     void playCurrentInternal(bool fromStart);
@@ -159,6 +169,7 @@ private:
     std::mutex m_trackMutex;
     std::vector<Mix_Music*> m_tracks;
     std::vector<MusicTrackInfo> m_trackInfos;
+    std::atomic<std::uint32_t> m_playlistRevision{0};
     std::unordered_map<std::string, std::vector<uint8_t>> m_folderCovers;
     std::vector<int> m_shuffleOrder;
     int   m_current = 0;
@@ -169,6 +180,7 @@ private:
     int   m_deferredSeekWarmupFrames = 0;
     bool  m_restoreFadeIn = false;
     std::atomic<bool> m_playing{false};
+    bool m_resumeExact = false; // paused in place: play() continues the same stream
     bool  m_paused = false;
     bool  m_shuffle = false;
     MusicRepeatMode m_repeat = MusicRepeatMode::All;

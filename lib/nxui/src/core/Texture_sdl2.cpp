@@ -86,6 +86,10 @@ bool Texture::loadFromPixels(GpuDevice& gpu, Renderer& ren,
     return true;
 }
 
+bool Texture::updateRegion(const uint8_t*, int, int, int, int) {
+    return false; // Thumbnail atlases are deko3d only.
+}
+
 bool Texture::loadFromPixelsPooled(GpuDevice& gpu, Renderer& ren,
                                     const uint8_t* rgba, int w, int h)
 {

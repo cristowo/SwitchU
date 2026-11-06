@@ -8,6 +8,10 @@ class GlassPanel : public Box {
 public:
     GlassPanel();
 
+    // Off: panels stay frosted and stop reading the screen behind them.
+    static void setEffectsEnabled(bool on) { s_effectsEnabled = on; }
+    static bool effectsEnabled()           { return s_effectsEnabled; }
+
     void setCornerRadius(float r)     { m_radius = r; }
     void setBaseColor(const Color& c) { m_base = c; }
     void setBorderColor(const Color& c) { m_border = c; }
@@ -63,6 +67,7 @@ protected:
     bool  m_blurEnabled  = false;
     float m_blurRadius   = 2.0f;
     int   m_blurPasses   = 3;
+    inline static bool s_effectsEnabled = true;
     bool  m_liquidGlassEnabled = false;
     bool  m_forceLiquidGlass = false;
     bool  m_liquidGlassShaderEnabled = true;

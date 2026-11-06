@@ -132,6 +132,9 @@ public:
     void resetImagePool();
     dk::UniqueMemBlock allocImageMemory(uint32_t size);
     void freeImageMemory(uint32_t size);
+    // The budget's side only: the caller frees the block itself once the GPU
+    // is done with it (Renderer::retireImageMemory, frames later, no waiting).
+    void forgetImageMemory(uint32_t size);
 
     // The menu applet reserves a 224 MiB heap. Keep the dynamic image cache
     // well below that process ceiling so CPU-side decodes, audio and Deko's
@@ -162,6 +165,10 @@ public:
     static void logGpu(const char* fmt, ...);
 
     bool uploadTexture(dk::Image& dst, const void* pixels, uint32_t size, uint32_t width, uint32_t height);
+    // Replaces one rectangle of an existing image. Runs on the same queue as the
+    // frames, so it is ordered after whatever already sampled the old pixels.
+    bool uploadTextureRegion(dk::Image& dst, const void* pixels, uint32_t x, uint32_t y,
+                             uint32_t width, uint32_t height);
     void beginTextureUploadBatch();
     void endTextureUploadBatch();
     void waitForTextureUploads();
@@ -225,7 +232,21 @@ private:
     // Per-slot fences: signalled in endFrame, waited in beginFrame, so that
     // the CPU never overwrites command/vertex memory the GPU is still reading.
     dk::Fence  m_frameFences[NUM_FB];
-    dk::Fence  m_uploadFence;
+    dk::Fence  m_uploadFence;        // a batch's: it uses all the upload memory
+    // Single uploads take turns through these: each has its own fence, a part
+    // of the command memory and of the staging pool (a big picture gets its own
+    // block). One waits only when its slot's copy, 16 uploads back, is still
+    // running, not for the frame being drawn. (From HomeNX.)
+    static constexpr int kUploadSlots = 16;
+    struct UploadSlot {
+        dk::Fence fence;
+        dk::UniqueMemBlock staging;
+        bool busy = false;
+    };
+    UploadSlot m_uploadSlots[kUploadSlots];
+    int        m_uploadNext = 0;
+    bool submitUpload(dk::Image& dst, const void* pixels, uint32_t size,
+                      const DkImageRect& rect);
     bool       m_uploadBatchActive = false;
     bool       m_uploadInFlight = false;
     unsigned   m_uploadBatchCount = 0;

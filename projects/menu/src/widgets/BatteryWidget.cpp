@@ -4,6 +4,7 @@
 #include <nxui/core/Renderer.hpp>
 #include <switch.h>
 #include <cstdio>
+#include <string>
 #include <algorithm>
 #include <cmath>
 
@@ -25,9 +26,16 @@ void BatteryWidget::setBatteryStatus(uint32_t percentage, bool charging) {
     refreshAccessibility();
 }
 
+void BatteryWidget::setTemperature(int celsius) {
+    if (celsius == m_temperature)
+        return;
+    m_temperature = celsius;
+    refreshAccessibility();
+}
+
 void BatteryWidget::refreshAccessibility() {
     auto& i18n = nxui::I18n::instance();
-    char buf[32];
+    char buf[64];
     if (m_level < 0.f)
         std::snprintf(buf, sizeof(buf), "%s",
                       i18n.tr("battery.label", "Battery").c_str());
@@ -35,7 +43,10 @@ void BatteryWidget::refreshAccessibility() {
         std::snprintf(buf, sizeof(buf), "%s %d%%",
                       i18n.tr("battery.label", "Battery").c_str(),
                       static_cast<int>(m_level * 100.f + 0.5f));
-    setAccessibilityLabel(buf);
+    std::string label = buf;
+    if (m_temperature >= 0)
+        label += ", " + std::to_string(m_temperature) + " °C";
+    setAccessibilityLabel(label);
     setAccessibilityRole(i18n.tr("accessibility.roles.button", "button"));
     setAccessibilityHint(i18n.tr("battery.hint", "A to open Quick Settings."));
 }
@@ -137,8 +148,11 @@ void BatteryWidget::onContentRender(nxui::Renderer& ren) {
     }
 
     if (m_font) {
-        char buf[16];
-        std::snprintf(buf, sizeof(buf), "%d%%", (int)(level * 100));
+        char buf[32];
+        if (m_temperature >= 0)
+            std::snprintf(buf, sizeof(buf), "%d%%  %d°C", (int)(level * 100), m_temperature);
+        else
+            std::snprintf(buf, sizeof(buf), "%d%%", (int)(level * 100));
         nxui::Vec2 sz = m_font->measure(buf);
         float tx = cr.x + (cr.width - sz.x * 0.75f) * 0.5f;
         float ty = by + bh + 6.f;

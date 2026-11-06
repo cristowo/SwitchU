@@ -41,6 +41,20 @@ SettingsScreen::Tab settings::tabs::DisplayTab::build(SettingsScreen& screen) {
     }
 
     {
+        SettingItem it; it.label = i18n.tr("settings.display.glass", "Glass Effects"); it.type = ItemType::Toggle;
+        it.description = i18n.tr("settings.display.glass_desc",
+            "Turn off for plain frosted panels and a steadier frame rate.");
+        it.boolVal = screen.m_glassEffects;
+        it.anim01 = it.boolVal ? 1.f : 0.f;
+        it.onChange = [&screen](SettingItem& self) {
+            screen.m_glassEffects = self.boolVal;
+            if (screen.m_glassEffectsCb)
+                screen.m_glassEffectsCb(self.boolVal);
+        };
+        t.items.push_back(std::move(it));
+    }
+
+    {
         SettingItem it; it.label = i18n.tr("settings.display.burn_in", "Screen Burn-In Reduction"); it.type = ItemType::Toggle;
         it.description = i18n.tr("settings.display.burn_in_desc", "Reduce screen burn-in during long usage.");
         bool val = false;

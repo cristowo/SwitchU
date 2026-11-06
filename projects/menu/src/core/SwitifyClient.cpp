@@ -20,6 +20,7 @@ using Clock = std::chrono::steady_clock;
 
 constexpr auto kActivePeriod = std::chrono::milliseconds(250);
 constexpr auto kBackgroundPeriod = std::chrono::milliseconds(1000);
+constexpr auto kLevelsPeriod = std::chrono::milliseconds(50);
 constexpr auto kStartupGrace = std::chrono::seconds(25);
 constexpr auto kCoverRetry = std::chrono::seconds(20);
 constexpr std::size_t kMaxCoverBytes = 512 * 1024;
@@ -111,6 +112,34 @@ void Client::setDemand(Demand demand) {
         m_wake.notify_all();
 }
 
+void Client::setLevelsWanted(bool wanted) {
+    if (m_levelsWanted.exchange(wanted) != wanted)
+        m_wake.notify_all();
+}
+
+void Client::levels(float* out) const {
+    std::lock_guard lock(m_mutex);
+    for (std::size_t i = 0; i < m_levels.size(); ++i)
+        out[i] = static_cast<float>(m_levels[i]) / 255.f;
+}
+
+void Client::pollLevels() {
+    if (!m_connected) return;
+    std::array<std::uint8_t, kLevelBands> levels{};
+    static bool firstRequest = true;
+    if (firstRequest) DebugLog::log("[switify] first audio levels request");
+    if (R_FAILED(serviceDispatchOut(&g_service,
+            static_cast<std::uint32_t>(IpcCommand::GetAudioLevels), levels))) {
+        m_levelsAvailable.store(false);
+        DebugLog::log("[switify] this build has no audio levels");
+        return;
+    }
+    if (firstRequest) DebugLog::log("[switify] first audio levels received");
+    firstRequest = false;
+    std::lock_guard lock(m_mutex);
+    m_levels = levels;
+}
+
 NowPlaying Client::nowPlaying() const {
     std::lock_guard lock(m_mutex);
     return m_now;
@@ -178,6 +207,7 @@ bool Client::connect() {
     if (!serviceRegistered()) return false;
     if (R_FAILED(smGetService(&g_service, kServiceName))) return false;
     m_connected = true;
+    m_levelsAvailable.store(true);
     DebugLog::log("[switify] connected");
     return true;
 }
@@ -226,6 +256,9 @@ void Client::execute(const Request& request) {
     } else {
         rc = serviceDispatch(&g_service, id);
     }
+    // The official Switify does not know it: the best it can do is carry on.
+    if (R_FAILED(rc) && request.command == IpcCommand::ReloadCurrent)
+        rc = serviceDispatch(&g_service, static_cast<std::uint32_t>(IpcCommand::Play));
     if (R_FAILED(rc)) {
         DebugLog::log("[switify] command %u failed rc=0x%X", static_cast<unsigned>(id),
                       static_cast<unsigned>(rc));
@@ -265,6 +298,7 @@ void Client::pollStatus() {
             (status.playbackState == 1 || status.playbackState == 2);
         now.shuffle = (status.flags & kStatusFlagShuffle) != 0;
         now.canSeek = (status.flags & kStatusFlagCanSeek) != 0;
+        now.reloading = (status.flags & kStatusFlagReloading) != 0;
         now.repeat = menuRepeatFromFlags(status.flags);
         now.positionMs = status.positionMs;
         now.durationMs = status.durationMs;
@@ -400,6 +434,7 @@ void Client::pollCover(bool hasTrack) {
 
 void Client::run() {
     DebugLog::log("[switify] worker started");
+    auto nextFullPoll = Clock::now();
     while (!m_stop) {
         std::vector<Request> requests;
         {
@@ -409,14 +444,24 @@ void Client::run() {
         for (const auto& request : requests)
             execute(request);
 
-        pollStatus();
         const bool active = m_demand.load() == Demand::Active;
-        if (active) pollBrowse();
-        pollCover(nowPlaying().hasTrack);
+        const auto period = active ? std::chrono::milliseconds(kActivePeriod)
+                                   : std::chrono::milliseconds(kBackgroundPeriod);
+        if (!requests.empty() || Clock::now() >= nextFullPoll) {
+            pollStatus();
+            if (active) pollBrowse();
+            pollCover(nowPlaying().hasTrack);
+            nextFullPoll = Clock::now() + period;
+        }
+
+        // Faster than the status, and only while bars are on screen.
+        const bool wanted = m_levelsWanted.load();
+        const bool polling = wanted && m_levelsAvailable.load();
+        if (polling) pollLevels();
 
         std::unique_lock lock(m_mutex);
-        m_wake.wait_for(lock, active ? kActivePeriod : kBackgroundPeriod, [this]() {
-            return m_stop.load() || !m_requests.empty();
+        m_wake.wait_for(lock, polling ? kLevelsPeriod : period, [this, wanted]() {
+            return m_stop.load() || !m_requests.empty() || m_levelsWanted.load() != wanted;
         });
     }
     disconnect();

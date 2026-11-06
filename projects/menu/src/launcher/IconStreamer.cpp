@@ -30,6 +30,23 @@ IconStreamer::DecodedIcon decodePosterFromCache(std::uint64_t titleId) {
     return out;
 }
 
+// SteamGridDB icons are PNGs up to 1024 px: decoding one takes far longer than
+// a stock icon's small JPEG, every time its page comes back. Same fit box as
+// decodeIconData, so the first load bakes a cache and the rest just read it.
+IconStreamer::DecodedIcon decodeCustomIconFromCache(std::uint64_t titleId) {
+    IconStreamer::DecodedIcon out{};
+    if (titleId == 0 || !SteamGridDbManager::hasIcon(titleId))
+        return out;
+    auto decoded = steamgriddb::artwork::decodeFit(
+        SteamGridDbManager::iconPath(titleId), kPosterFitMaxW, kPosterFitMaxH);
+    if (decoded.rgba.empty())
+        return out;
+    out.rgba = std::move(decoded.rgba);
+    out.w = decoded.width;
+    out.h = decoded.height;
+    return out;
+}
+
 } // namespace
 
 
@@ -278,6 +295,33 @@ bool IconStreamer::needsVisibleLoads(int currentPage, int iconsPerPage) const {
     return false;
 }
 
+bool IconStreamer::canWarmGridNeighbours(int iconsPerPage, const nxui::GpuDevice& gpu) const {
+    return iconsPerPage > 1 && m_pageCacheRadiusCap != 0 &&
+           std::chrono::steady_clock::now() >= m_softLandingUntil &&
+           gpu.imageMemoryAvailable() > kGpuImageReserve + kNeighbourWarmMargin;
+}
+
+bool IconStreamer::needsNeighbourLoads(int currentPage, int iconsPerPage,
+                                       const nxui::GpuDevice& gpu) const {
+    if (m_appToSlot.empty() || !canWarmGridNeighbours(iconsPerPage, gpu))
+        return false;
+    const int totalApps = static_cast<int>(m_appToSlot.size());
+    const int totalPages = (totalApps + iconsPerPage - 1) / iconsPerPage;
+    for (const int page : {currentPage + 1, currentPage - 1}) {
+        if (page < 0 || page >= totalPages)
+            continue;
+        const int end = std::min(totalApps, (page + 1) * iconsPerPage);
+        for (int i = page * iconsPerPage; i < end; ++i) {
+            const uint64_t titleId = i < (int)m_titleIds.size() ? m_titleIds[(size_t)i] : 0;
+            const bool failed = std::find(m_failedTitleIds.begin(), m_failedTitleIds.end(), titleId)
+                != m_failedTitleIds.end();
+            if (titleId != 0 && m_appToSlot[(size_t)i] < 0 && !failed && hasData(i))
+                return true;
+        }
+    }
+    return false;
+}
+
 // ---------------------------------------------------------------------------
 // Decode a single compressed icon to RGBA, downscaling to kIconSize if needed.
 // ---------------------------------------------------------------------------
@@ -448,6 +492,11 @@ void IconStreamer::onPageChanged(int currentPage, int iconsPerPage,
     int totalPages = (totalApps + iconsPerPage - 1) / iconsPerPage;
     currentPage = std::clamp(currentPage, 0, totalPages - 1);
 
+    // Grid flip: land the new page as fast as possible, not one icon per frame.
+    if (iconsPerPage > 1 && iconsPerPage == m_lastIconsPerPage &&
+        m_lastPage >= 0 && currentPage != m_lastPage)
+        startBurst(0.5f);
+
     m_lastPage = currentPage;
     m_lastIconsPerPage = iconsPerPage;
 
@@ -466,8 +515,18 @@ void IconStreamer::onPageChanged(int currentPage, int iconsPerPage,
     int cacheEndApp     = std::min(totalApps, (cacheEndPage + 1) * iconsPerPage);
 
     // 1. Evict textures outside the local page window. This keeps GPU memory
-    //    bounded while preserving quick navigation to nearby pages.
-    for (int i = 0; i < (int)m_pool.size(); ++i) {
+    //    bounded while preserving quick navigation to nearby pages. Only when
+    //    that memory is needed: a whole library of grid icons fits many times
+    //    over, and dropping them made every page flip read them from the SD again.
+    const bool keepGridPages = iconsPerPage > 1 && m_pageCacheRadiusCap < 0 &&
+        gpu.imageMemoryAvailable() > kNeighbourWarmMargin + kGpuImageReserve;
+    // Soft landing only slows new loads; what is already loaded stays.
+    const int keepRadius = iconsPerPage == 1 && inSoftLanding() && m_pageCacheRadiusCap < 0
+        ? kPageCacheRadius : cacheRadius;
+    const int keepStartApp = std::max(0, currentPage - keepRadius) * iconsPerPage;
+    const int keepEndApp = std::min(totalApps,
+        (std::min(totalPages - 1, currentPage + keepRadius) + 1) * iconsPerPage);
+    for (int i = 0; !keepGridPages && i < (int)m_pool.size(); ++i) {
         if (!m_pool[i])
             continue;
 
@@ -475,7 +534,7 @@ void IconStreamer::onPageChanged(int currentPage, int iconsPerPage,
         if (app < 0 || app == m_pinnedIndex)
             continue;
 
-        if (app < cacheStartApp || app >= cacheEndApp) {
+        if (app < keepStartApp || app >= keepEndApp) {
             if (app < (int)allIcons.size())
                 allIcons[app]->setTexture(nullptr);
             if (app < (int)m_appToSlot.size())
@@ -623,6 +682,14 @@ void IconStreamer::onPageChanged(int currentPage, int iconsPerPage,
     } else {
         for (int appIndex = visibleStartApp; appIndex < visibleEndApp; ++appIndex)
             loadOrder.push_back(appIndex);
+        // Queued after the visible page: the next page is ready before the
+        // user flips to it, and a flip back finds its icons still resident.
+        if (canWarmGridNeighbours(iconsPerPage, gpu)) {
+            for (int appIndex = visibleEndApp; appIndex < cacheEndApp; ++appIndex)
+                loadOrder.push_back(appIndex);
+            for (int appIndex = cacheStartApp; appIndex < visibleStartApp; ++appIndex)
+                loadOrder.push_back(appIndex);
+        }
     }
     for (int appIndex : loadOrder) {
         if ((int)m_pendingDecodes.size() >= (inBurst() ? kBurstMaxPendingDecodes : kMaxPendingDecodes))
@@ -662,6 +729,9 @@ void IconStreamer::onPageChanged(int currentPage, int iconsPerPage,
                 // fallback — reload via the loader (which may still prefer poster).
                 compressed.clear();
             }
+            state->decoded = decodeCustomIconFromCache(titleId);
+            if (!state->decoded.rgba.empty())
+                return;
             if (compressed.empty() && loader)
                 compressed = loader(titleId);
             if (state->cancelled.load())

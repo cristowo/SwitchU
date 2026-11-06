@@ -1,0 +1,33 @@
+{
+  "id": "fireflies",
+  "name": "Luciérnagas",
+  "version": "1.0.0",
+  "theme": {
+    "mode": "dark",
+    "colors": {
+      "background": [0.0, 0.0, 0.0],
+      "backgroundAccent": [0.0, 0.0, 0.0],
+      "shapes": [0.17, 1.0, 0.62],
+      "accent": [0.17, 1.0, 0.62],
+      "cursor": [0.17, 1.0, 0.62]
+    },
+    "background": {
+      "image": { "path": "background.png", "opacity": 1, "fit": "cover" },
+      "layout": "floating",
+      "shape": "circle",
+      "symmetry": "none",
+      "count": 36,
+      "size": [2.5, 6],
+      "speed": [2, 9],
+      "wobble": 45,
+      "rotationSpeed": 0,
+      "opacity": 1,
+      "twinkle": 0.95,
+      "twinkleSpeed": 0.25,
+      "glow": 0.8
+    }
+  },
+  "audio": {
+    "preset": "wiiu"
+  }
+}

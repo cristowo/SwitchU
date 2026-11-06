@@ -80,6 +80,8 @@ public:
     void startAppearAnimation(const IconAppearOptions& opt = IconAppearOptions{});
     // Mirror of a fromTile appear: icons fly back into opt.origin, last in, first out.
     void startDisappearAnimation(const IconAppearOptions& opt, float dur);
+    // The page's tiles drop in from above the screen, lowest first.
+    void startCascadeAnimation();
 
     // Move-mode swap effect. Glides the tile that a placement displaced from
     // (displacedPrevious) into the slot it ended up in (displacedCurrent).

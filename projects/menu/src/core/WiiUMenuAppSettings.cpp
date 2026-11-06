@@ -301,6 +301,14 @@ void WiiUMenuApp::createSettings() {
     m_settings->setUiLanguageOverride(m_config.uiLanguageOverride);
     m_settings->setClockUse12HourState(m_config.clockUse12Hour);
     m_settings->setLockScreenState(m_config.lockScreenEnabled);
+    m_settings->setLockPasswordState(m_lockPasswordSet);
+    m_settings->setLockSinglePressState(m_config.lockSinglePress);
+    m_settings->setLockCascadeState(m_config.lockCascade);
+    m_settings->setLockMusicState(m_config.lockMusic);
+    m_settings->setLockShapesState(m_config.lockShapes);
+    m_settings->setScreenOffMusicState(m_config.screenOffMusic);
+    m_settings->setGlassEffectsState(m_config.glassEffects);
+    m_settings->setLockPictureState(m_config.lockPicturePath);
     m_settings->setWebClockSyncState(m_config.webClockSyncEnabled);
     m_settings->setAccessibilityEnabledState(m_config.accessibilityEnabled);
     m_settings->setAccessibilitySpeechState(m_config.accessibilitySpeakHints,
@@ -378,9 +386,36 @@ void WiiUMenuApp::createSettings() {
             return;
         m_config.lockScreenEnabled = enabled;
 #ifdef SWITCHU_MENU
-        switchu::menu::smi_cmd::setLockScreen(enabled);
+        switchu::menu::smi_cmd::setLockScreen(enabled, m_lockPasswordSet);
 #endif
     });
+    m_settings->onLockSinglePressChange([this](bool enabled) {
+        m_config.lockSinglePress = enabled;
+    });
+    m_settings->onLockCascadeChange([this](bool enabled) {
+        m_config.lockCascade = enabled;
+    });
+    m_settings->onLockMusicChange([this](bool enabled) {
+        m_config.lockMusic = enabled;
+    });
+    m_settings->onLockShapesChange([this](bool enabled) {
+        m_config.lockShapes = enabled;
+    });
+    m_settings->onScreenOffMusicChange([this](bool enabled) {
+        m_config.screenOffMusic = enabled;
+    });
+    m_settings->onGlassEffectsChange([this](bool enabled) {
+        m_config.glassEffects = enabled;
+        nxui::GlassPanel::setEffectsEnabled(enabled);
+    });
+    m_settings->onLockPictureChange([this](const std::string& path) {
+        m_config.lockPicturePath = path;
+        m_lockPicture = nxui::Texture{};
+    });
+    m_settings->onLockPasswordAction([this]() {
+        beginLockTask(m_lockPasswordSet ? LockTask::RemovePassword : LockTask::MakePassword);
+    });
+    m_settings->onLockPreview([this]() { beginLockTask(LockTask::Preview); });
     m_settings->onWebClockSyncChange([this](bool enabled) {
         if (m_config.webClockSyncEnabled == enabled)
             return;
@@ -726,6 +761,7 @@ void WiiUMenuApp::createQuickSettings() {
     m_quickSettings->setTheme(&m_theme);
     m_quickSettings->setInstantCursorMotion(m_config.cursorMotionMode == 1);
     m_quickSettings->setInput(&app().input());
+    m_quickSettings->setThreadPool(&m_threadPool);
 
     QuickSettingsOverlay::Callbacks callbacks;
     callbacks.onBgmVolumeChanged = [this](float value) {
@@ -797,8 +833,10 @@ void WiiUMenuApp::createQuickSettings() {
     callbacks.onMusicSetSource = [this](bool spotify) { setMusicSource(spotify); };
     callbacks.onMusicBrowseBack = [this]() { return spotifyBrowseBack(); };
     callbacks.onMusicQueryState = [this]() {
-        if (spotifySource())
+        if (spotifySource()) {
+            m_quickSettingsPlaylistRevision = -1;
             return spotifyMusicState();
+        }
         QuickSettingsOverlay::MusicUiState state;
         state.nowPlaying = m_audio.currentDisplayTitle();
         if (state.nowPlaying.empty())
@@ -811,6 +849,13 @@ void WiiUMenuApp::createQuickSettings() {
         state.positionSeconds = m_audio.positionSeconds();
         state.durationSeconds = m_audio.durationSeconds();
         state.currentIndex = m_audio.currentIndex();
+        // This runs every frame: copy the track list only when it changed.
+        const std::int64_t revision = m_audio.playlistRevision();
+        if (revision == m_quickSettingsPlaylistRevision) {
+            state.listUnchanged = true;
+            return state;
+        }
+        m_quickSettingsPlaylistRevision = revision;
         state.hasAlbumFolders = m_audio.hasAlbumFolders();
         state.playlistFilenames = m_audio.playlistFilenames();
         state.playlistOrderKeys = m_audio.playlistOrderKeys();
@@ -1158,6 +1203,7 @@ void WiiUMenuApp::clearSteamGridDbArtwork(std::uint64_t titleId,
             m_grid->invalidateLineLayout();
         }
         if (!isFolderArt) {
+            markThumbnailsStale(titleId);
             m_iconStreamer.reloadTitle(titleId, m_grid->currentPage(),
                                        m_grid->iconsPerPage(),
                                        app().gpu(), app().renderer(), m_grid->allIcons());
@@ -1175,6 +1221,7 @@ void WiiUMenuApp::clearSteamGridDbArtwork(std::uint64_t titleId,
         || managerKind == SteamGridDbManager::ArtworkKind::Hero
         || managerKind == SteamGridDbManager::ArtworkKind::Logo) {
         m_gameArtwork.erase(titleId);
+        markThumbnailsStale(titleId);
         const auto size = gameGridSize(titleId, AppLayoutMode::Grid);
         if (switchu::widgets::isLandscapeWideGameTile(size))
             ensureGameArtwork(titleId);
@@ -1322,6 +1369,7 @@ void WiiUMenuApp::syncSteamGridDb() {
             app().renderer().reclaimReleasedTextureSlotsAfterIdle();
 #endif
             m_gameArtwork.erase(result.titleId);
+            markThumbnailsStale(result.titleId);
             if (m_recentWidgetAssetTitleId == result.titleId) {
                 m_recentWidgetAssetTitleId = 0;
                 m_recentWidgetHero.reset();
@@ -1347,6 +1395,7 @@ void WiiUMenuApp::syncSteamGridDb() {
                 }
                 m_grid->invalidateLineLayout();
                 if (!isFolderArt) {
+                    markThumbnailsStale(result.titleId);
                     m_iconStreamer.reloadTitle(result.titleId, m_grid->currentPage(),
                                                m_grid->iconsPerPage(), app().gpu(),
                                                app().renderer(), m_grid->allIcons());
@@ -1401,6 +1450,7 @@ void WiiUMenuApp::syncSteamGridDb() {
                 || result.kind == SteamGridDbManager::ArtworkKind::Hero
                 || result.kind == SteamGridDbManager::ArtworkKind::Logo) {
                 m_gameArtwork.erase(result.titleId);
+                markThumbnailsStale(result.titleId);
                 const auto size = gameGridSize(result.titleId, AppLayoutMode::Grid);
                 if (switchu::widgets::isLandscapeWideGameTile(size))
                     ensureGameArtwork(result.titleId);
@@ -1518,8 +1568,10 @@ void WiiUMenuApp::syncSteamGridDb() {
                 const int rows = icon->gridSpanRows();
                 if (switchu::widgets::isLandscapeWideGameTile(cols, rows)) {
                     m_gameArtwork.erase(tid);
+                    markThumbnailsStale(tid);
                     ensureGameArtwork(tid);
                 } else if (preferPosterIconData(tid) && !preferPosterTiles) {
+                    markThumbnailsStale(tid);
                     m_iconStreamer.reloadTitle(tid, m_grid->currentPage(),
                                                m_grid->iconsPerPage(),
                                                app().gpu(), app().renderer(),
@@ -3568,6 +3620,9 @@ void WiiUMenuApp::applyThemeResources(const ThemePreset& preset) {
         backgroundConfig.fixedOrientation = preset.background.fixedOrientation;
         backgroundConfig.orientationDegrees = preset.background.orientationDegrees;
         backgroundConfig.cornerRoundness = preset.background.cornerRoundness;
+        backgroundConfig.twinkle = preset.background.twinkle;
+        backgroundConfig.twinkleSpeed = preset.background.twinkleSpeed;
+        backgroundConfig.glow = preset.background.glow;
         backgroundConfig.imageOpacity = preset.background.imageOpacity;
         backgroundConfig.imageCover = preset.background.imageCover;
         m_background->setConfig(backgroundConfig);

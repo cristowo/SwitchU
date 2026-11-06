@@ -16,6 +16,7 @@ int main() {
         WidgetType::ImagePin,
         WidgetType::Batteries,
         WidgetType::NowPlaying,
+        WidgetType::Calendar,
     };
 
     for (const WidgetType type : types) {
@@ -23,7 +24,7 @@ int main() {
             type, AppLayoutMode::DynamicLine);
         if (type == WidgetType::RecentlyPlayed || type == WidgetType::RecentPlaytime ||
             type == WidgetType::Batteries || type == WidgetType::NowPlaying ||
-            type == WidgetType::RandomScreenshot) {
+            type == WidgetType::RandomScreenshot || type == WidgetType::Calendar) {
             assert(singleRow.empty());
             assert((switchu::widgets::validatedSize(
                         type, {2, 1}, AppLayoutMode::DynamicLine) == WidgetSize{0, 0}));
@@ -53,6 +54,23 @@ int main() {
                 WidgetType::Clock, {2, 2}, AppLayoutMode::Grid) == WidgetSize{1, 1}));
     assert((switchu::widgets::validatedSize(
                 WidgetType::ImagePin, {1, 2}, AppLayoutMode::Grid) == WidgetSize{1, 2}));
+
+    assert((switchu::widgets::validatedSize(
+                WidgetType::Calendar, {2, 1}, AppLayoutMode::Grid) == WidgetSize{2, 2}));
+    WidgetType parsedCalendar = WidgetType::Clock;
+    assert(switchu::widgets::parseType(
+        switchu::widgets::typeKey(WidgetType::Calendar), parsedCalendar));
+    assert(parsedCalendar == WidgetType::Calendar);
+    assert(switchu::widgets::calendarDaysInMonth(2028, 2) == 29);
+    assert(switchu::widgets::calendarDaysInMonth(2100, 2) == 28);
+    assert(switchu::widgets::calendarDaysInMonth(2000, 2) == 29);
+    assert(switchu::widgets::calendarDaysInMonth(2026, 11) == 30);
+    // 2 Nov 2026 is a Monday, so the 1st is a Sunday.
+    assert(switchu::widgets::calendarLeadingBlanks(2, 1, 0) == 0);
+    assert(switchu::widgets::calendarLeadingBlanks(2, 1, 1) == 6);
+    // 31 Jan 2026 is a Saturday, so the 1st is a Thursday.
+    assert(switchu::widgets::calendarLeadingBlanks(31, 6, 0) == 4);
+    assert(switchu::widgets::calendarLeadingBlanks(31, 6, 1) == 3);
 
     for (const std::uint32_t id : {1u, 42u, 0xFFFFFFFFu}) {
         const auto titleId = switchu::widgets::widgetTitleId(id);

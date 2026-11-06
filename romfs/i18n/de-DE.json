@@ -96,7 +96,9 @@
       "page_translate": "Gleiten",
       "page_teleport": "Springen",
       "ui_wireframe": "UI-Wireframe",
-      "ui_wireframe_desc": "Umrisse aller Box-Widgets zur Layout-Fehlersuche anzeigen."
+      "ui_wireframe_desc": "Umrisse aller Box-Widgets zur Layout-Fehlersuche anzeigen.",
+      "glass": "Glaseffekte",
+      "glass_desc": "Ausschalten für einfache Milchglas-Flächen und eine stabilere Bildrate."
     },
     "internet": {
       "wifi_ssid": "WLAN-Netzwerk",
@@ -156,7 +158,24 @@
       "wake_power": "Aufwachen bei Stromzufuhr",
       "wake_power_desc": "Konsole aufwecken, wenn das Netzteil an- oder abgesteckt wird.",
       "lock_screen": "Sperrbildschirm",
-      "lock_screen_desc": "Zeigt den Sperrbildschirm, wenn die Konsole aus dem Standby erwacht."
+      "lock_screen_desc": "Zeigt den Sperrbildschirm, wenn die Konsole aus dem Standby erwacht.",
+      "lock_single": "Mit einem Tastendruck entsperren",
+      "lock_single_desc": "Einmal A drücken statt dreimal dieselbe Taste.",
+      "lock_password": "Sperr-Passwort",
+      "lock_password_desc": "4 bis 8 Steuerkreuz-Eingaben. Vergessen? Lösche config/SwitchU/lock_password von der SD-Karte.",
+      "lock_picture": "Sperrbild",
+      "lock_picture_desc": "Ein Screenshot aus dem Album oder der Bildschirminhalt, verschwommen.",
+      "lock_picture_none": "HOME, verschwommen",
+      "lock_preview": "Sperrbildschirm-Vorschau",
+      "lock_preview_desc": "Zeigt den Sperrbildschirm mit den aktuellen Einstellungen.",
+      "lock_cascade": "Symbole fallen beim Entsperren",
+      "lock_cascade_desc": "Der Sperrbildschirm zeigt nur den Hintergrund des Designs, und die Symbole fallen beim Entsperren an ihren Platz.",
+      "lock_music": "Musik auf dem Sperrbildschirm",
+      "lock_music_desc": "Während ein Titel auf dem Sperrbildschirm läuft: Balken, Name, Cover und Steuerung über L, R und ZR. Der Bildschirm bleibt dabei an.",
+      "screen_off_music": "Musik bei ausgeschaltetem Bildschirm",
+      "screen_off_music_desc": "Im HOME-Menü, Handheld: Während Musik läuft, schaltet die POWER-Taste nur den Bildschirm aus. Die Konsole bleibt aktiv und verbraucht mehr als im Standby.",
+      "lock_shapes": "Animiertes Design auf dem Sperrbildschirm",
+      "lock_shapes_desc": "Zeigt die bewegten Formen des Designs, etwa Glühwürmchen, auf dem Sperrbildschirm. Braucht etwas mehr Akku."
     },
     "theme": {
       "preset": "Voreinstellung",
@@ -248,7 +267,10 @@
     "close_title": "Spiel schließen",
     "close_prefix": "Schließen",
     "close_suffix": "?\nNicht gespeicherter Fortschritt geht verloren.",
-    "replace_message": "Die derzeit pausierte Software wird beendet.\nNicht gespeicherter Fortschritt geht verloren."
+    "replace_message": "Die derzeit pausierte Software wird beendet.\nNicht gespeicherter Fortschritt geht verloren.",
+    "rename_title": "Umbenennen",
+    "rename_guide": "Leer lassen für den Originalnamen",
+    "rename_desc": "Gib dieser Software im HOME-Menü einen anderen Namen."
   },
   "power": {
     "title": "Energie",
@@ -288,7 +310,11 @@
     "cancel": "Abbrechen",
     "delete": "Löschen",
     "close": "Close",
-    "replace": "Replace"
+    "replace": "Replace",
+    "rename": "Umbenennen",
+    "create": "Erstellen",
+    "remove": "Entfernen",
+    "show": "Anzeigen"
   },
   "themeshop": {
     "source": {
@@ -570,7 +596,21 @@
     "wednesday": "Mittwoch",
     "thursday": "Donnerstag",
     "friday": "Freitag",
-    "saturday": "Samstag"
+    "saturday": "Samstag",
+    "press_a": "Drücke A zum Entsperren",
+    "preview": "Drücke eine Taste, um die Vorschau zu schließen.",
+    "pw_enter": "Gib dein Passwort mit dem Steuerkreuz ein",
+    "pw_make": "Drücke das Steuerkreuz 4- bis 8-mal, dann A",
+    "pw_again": "Gib es zur Prüfung noch einmal ein",
+    "pw_wrong": "Falsches Passwort",
+    "pw_mismatch": "Stimmt nicht überein. Noch einmal erstellen.",
+    "pw_too_short": "Mindestens 4-mal drücken, dann A",
+    "pw_hint": "B Löschen",
+    "pw_hint_make": "A Fertig    B Löschen (nochmal zum Beenden)",
+    "pw_hint_stop": "B Löschen (nochmal zum Beenden)",
+    "music_skip": "L/R: Zurück/Weiter",
+    "music_play": "ZR: Wiedergabe/Pause",
+    "music_reconnecting": "Verbinde neu..."
   },
   "widget": {
     "now_playing": "Läuft gerade",
@@ -580,7 +620,8 @@
     "previous": "Vorheriger Titel",
     "switch_to_spotify": "Zu Spotify wechseln",
     "switch_to_songs": "Zu Songs wechseln",
-    "play_pause": "Wiedergabe/Pause"
+    "play_pause": "Wiedergabe/Pause",
+    "calendar": "Kalender"
   },
   "switify": {
     "not_installed": "Switify ist nicht installiert",
@@ -604,5 +645,10 @@
     "search_title": "Spotify durchsuchen",
     "loading": "Wird geladen...",
     "load_failed": "Diese Seite konnte nicht geladen werden"
+  },
+  "calendar": {
+    "months": "Januar,Februar,März,April,Mai,Juni,Juli,August,September,Oktober,November,Dezember",
+    "weekdays": "M,D,M,D,F,S,S",
+    "first_weekday": "1"
   }
 }

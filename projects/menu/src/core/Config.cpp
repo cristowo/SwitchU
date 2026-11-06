@@ -89,6 +89,13 @@ bool AppConfig::load() {
     readJsonOpt(j, "tutorialCompleted", tutorialCompleted);
     readJsonOpt(j, "clockUse12Hour", clockUse12Hour);
     readJsonOpt(j, "lockScreenEnabled", lockScreenEnabled);
+    readJsonOpt(j, "lockSinglePress", lockSinglePress);
+    readJsonOpt(j, "lockCascade", lockCascade);
+    readJsonOpt(j, "lockMusic", lockMusic);
+    readJsonOpt(j, "lockShapes", lockShapes);
+    readJsonOpt(j, "screenOffMusic", screenOffMusic);
+    readJsonOpt(j, "glassEffects", glassEffects);
+    readJsonOpt(j, "lockPicturePath", lockPicturePath);
     readJsonOpt(j, "webClockSyncEnabled", webClockSyncEnabled);
     readJsonOpt(j, "accessibilityEnabled", accessibilityEnabled);
     readJsonOpt(j, "accessibilitySpeakHints", accessibilitySpeakHints);
@@ -275,6 +282,13 @@ bool AppConfig::save() const {
     j["tutorialCompleted"] = tutorialCompleted;
     j["clockUse12Hour"] = clockUse12Hour;
     j["lockScreenEnabled"] = lockScreenEnabled;
+    j["lockSinglePress"] = lockSinglePress;
+    j["lockCascade"] = lockCascade;
+    j["lockMusic"] = lockMusic;
+    j["lockShapes"] = lockShapes;
+    j["screenOffMusic"] = screenOffMusic;
+    j["glassEffects"] = glassEffects;
+    j["lockPicturePath"] = lockPicturePath;
     j["webClockSyncEnabled"] = webClockSyncEnabled;
     j["accessibilityEnabled"] = accessibilityEnabled;
     j["accessibilitySpeakHints"] = accessibilitySpeakHints;

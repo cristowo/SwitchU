@@ -4,8 +4,11 @@
 #include <nxui/core/Renderer.hpp>
 #include <nxui/core/I18n.hpp>
 #include <nxui/core/Animation.hpp>
+#include <nxui/core/ThreadPool.hpp>
+#include <nxui/third_party/stb/stb_image.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -161,7 +164,7 @@ static constexpr float kMusicCardLabelSidePad = 12.f;
 static constexpr float kPlaylistEyeSize = 28.f;
 static constexpr float kPlaylistHandleW = 28.f;
 static constexpr float kPlaylistTreeIndent = 20.f;
-static constexpr int kPlaylistThumbCacheMax = 20;
+static constexpr int kPlaylistThumbCacheMax = 32;
 static constexpr float kPlaylistListBottomPad = 12.f;
 
 // Bandcamp-style title marquee (see title_marquee.py).
@@ -591,11 +594,11 @@ void QuickSettingsOverlay::syncMusicFromCallbacks() {
         return;
 
     MusicUiState next = m_callbacks.onMusicQueryState();
-    const bool listChanged =
+    const bool listChanged = !next.listUnchanged && (
         next.spotify != m_music.spotify
         || next.playlistOrderKeys != m_music.playlistOrderKeys
         || next.playlistTitles.size() != m_music.playlistTitles.size()
-        || next.hasAlbumFolders != m_music.hasAlbumFolders;
+        || next.hasAlbumFolders != m_music.hasAlbumFolders);
 
     // Always refresh live playback fields; only swap heavy list data when needed.
     m_music.nowPlaying = std::move(next.nowPlaying);
@@ -841,28 +844,55 @@ void QuickSettingsOverlay::activatePlaylistRow() {
     updateCursorTarget(true);
 }
 
-const nxui::Texture* QuickSettingsOverlay::playlistThumbTexture(
-    nxui::Renderer& ren, const std::string& key, const std::vector<uint8_t>* bytes) {
-    if (key.empty() || !bytes || bytes->empty())
-        return nullptr;
+struct QuickSettingsOverlay::PlaylistThumbJob {
+    std::string key;
+    std::vector<uint8_t> bytes;
+    int maxSide = 0;
+    std::vector<uint8_t> rgba;
+    int width = 0;
+    int height = 0;
+    std::atomic<bool> done{false};
 
-    ++m_playlistThumbClock;
-    for (auto& entry : m_playlistThumbs) {
-        if (entry.key == key) {
-            entry.lastUse = m_playlistThumbClock;
-            return entry.tex.valid() ? &entry.tex : nullptr;
+    void decode() {
+        int w = 0, h = 0, channels = 0;
+        if (stbi_uc* raw = stbi_load_from_memory(bytes.data(), static_cast<int>(bytes.size()),
+                                                 &w, &h, &channels, 4)) {
+            const float scale = std::min(1.f, static_cast<float>(maxSide) /
+                                                  static_cast<float>(std::max(w, h)));
+            width = std::max(1, static_cast<int>(static_cast<float>(w) * scale));
+            height = std::max(1, static_cast<int>(static_cast<float>(h) * scale));
+            rgba.resize(static_cast<std::size_t>(width) * height * 4u);
+            for (int y = 0; y < height; ++y) {
+                const int sy = y * h / height;
+                for (int x = 0; x < width; ++x) {
+                    const int sx = x * w / width;
+                    std::copy_n(raw + (static_cast<std::size_t>(sy) * w + sx) * 4u, 4,
+                                rgba.data() + (static_cast<std::size_t>(y) * width + x) * 4u);
+                }
+            }
+            stbi_image_free(raw);
         }
+        bytes.clear();
+        bytes.shrink_to_fit();
+        done.store(true);
     }
+};
+
+// Runs from update(), never while a frame is being recorded: evicting an old
+// thumbnail waits for the GPU.
+void QuickSettingsOverlay::pollPlaylistThumbJob() {
+    if (!m_playlistThumbJob || !m_playlistThumbJob->done.load() || !m_lastRenderer)
+        return;
+    const auto job = std::move(m_playlistThumbJob);
+    m_playlistThumbJob.reset();
 
     PlaylistThumb entry;
-    entry.key = key;
-    entry.lastUse = m_playlistThumbClock;
-    const float decodePx = (key.rfind("np", 0) == 0)
-        ? kMusicNowPlayingThumbSize * 2.f
-        : kPlaylistThumbSize * 2.f;
-    if (!entry.tex.loadFromMemory(ren.gpu(), ren, bytes->data(), bytes->size(),
-                                  static_cast<int>(decodePx)))
-        return nullptr;
+    entry.key = job->key;
+    entry.lastUse = ++m_playlistThumbClock;
+    // A failed decode is cached too (invalid texture), so it is not retried.
+    if (!job->rgba.empty())
+        entry.tex.loadFromPixels(m_lastRenderer->gpu(), *m_lastRenderer,
+                                 job->rgba.data(), job->width, job->height);
 
     if (static_cast<int>(m_playlistThumbs.size()) >= kPlaylistThumbCacheMax) {
         auto victim = std::min_element(m_playlistThumbs.begin(), m_playlistThumbs.end(),
@@ -871,11 +901,39 @@ const nxui::Texture* QuickSettingsOverlay::playlistThumbTexture(
             });
         if (victim != m_playlistThumbs.end()) {
             *victim = std::move(entry);
-            return victim->tex.valid() ? &victim->tex : nullptr;
+            return;
         }
     }
     m_playlistThumbs.push_back(std::move(entry));
-    return m_playlistThumbs.back().tex.valid() ? &m_playlistThumbs.back().tex : nullptr;
+}
+
+const nxui::Texture* QuickSettingsOverlay::playlistThumbTexture(
+    nxui::Renderer& ren, const std::string& key, const std::vector<uint8_t>* bytes) {
+    if (key.empty() || !bytes || bytes->empty())
+        return nullptr;
+
+    m_lastRenderer = &ren;
+    ++m_playlistThumbClock;
+    for (auto& entry : m_playlistThumbs) {
+        if (entry.key == key) {
+            entry.lastUse = m_playlistThumbClock;
+            return entry.tex.valid() ? &entry.tex : nullptr;
+        }
+    }
+
+    // Not cached yet: the row shows its placeholder until the worker finishes.
+    // Only rows being drawn ask, so decoding follows what is on screen.
+    if (m_playlistThumbJob || !m_threadPool)
+        return nullptr;
+    auto job = std::make_shared<PlaylistThumbJob>();
+    job->key = key;
+    job->bytes = *bytes; // Tracks can be reloaded while the worker runs.
+    job->maxSide = static_cast<int>((key.rfind("np", 0) == 0)
+        ? kMusicNowPlayingThumbSize * 2.f
+        : kPlaylistThumbSize * 2.f);
+    m_playlistThumbJob = job;
+    m_threadPool->submit([job]() { job->decode(); });
+    return nullptr;
 }
 
 void QuickSettingsOverlay::refreshCoverTexture(nxui::Renderer& ren) {
@@ -2531,6 +2589,8 @@ void QuickSettingsOverlay::update(float dt) {
         else
             m_coverFsPlaylistAnim = std::max(fsPlTarget, m_coverFsPlaylistAnim - step);
     }
+
+    pollPlaylistThumbJob();
 
     if (isFullyVisible()) {
         m_statusPollTimer += dt;

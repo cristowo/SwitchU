@@ -129,8 +129,22 @@ inline Result setInternetTimeSync(bool enabled) {
     return waitForCommandResponse(requestId);
 }
 
+// Fire-and-forget: read when a sleep request arrives.
+inline Result setScreenOffMusic(bool wanted, bool spotifyPlaying) {
+    uint8_t buf[sizeof(smi::CommandHeader) + sizeof(smi::ScreenOffMusicArgs)]{};
+    auto* hdr = reinterpret_cast<smi::CommandHeader*>(buf);
+    auto* args = reinterpret_cast<smi::ScreenOffMusicArgs*>(buf + sizeof(smi::CommandHeader));
+
+    hdr->magic = smi::kCommandMagic;
+    hdr->message = static_cast<uint32_t>(smi::SystemMessage::SetScreenOffMusic);
+    hdr->request_id = nextRequestId();
+    args->wanted = wanted ? 1 : 0;
+    args->spotify_playing = spotifyPlaying ? 1 : 0;
+    return pushOutStorage(buf, sizeof(buf));
+}
+
 // Fire-and-forget: the daemon only mirrors the flag for its wake path.
-inline Result setLockScreen(bool enabled) {
+inline Result setLockScreen(bool enabled, bool whenDocked) {
     uint8_t buf[sizeof(smi::CommandHeader) + sizeof(smi::LockScreenArgs)]{};
     auto* hdr = reinterpret_cast<smi::CommandHeader*>(buf);
     auto* args = reinterpret_cast<smi::LockScreenArgs*>(buf + sizeof(smi::CommandHeader));
@@ -139,6 +153,7 @@ inline Result setLockScreen(bool enabled) {
     hdr->message = static_cast<uint32_t>(smi::SystemMessage::SetLockScreen);
     hdr->request_id = nextRequestId();
     args->enabled = enabled ? 1 : 0;
+    args->when_docked = whenDocked ? 1 : 0;
     return pushOutStorage(buf, sizeof(buf));
 }
 

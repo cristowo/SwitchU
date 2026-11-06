@@ -101,8 +101,13 @@ bool FrameTapStatus::probe(float dtSeconds, float pollIntervalMs) {
     m_pollAccumMs += dtSeconds * 1000.f;
     // File fallback must not wait on sftap open/backoff — FT often writes
     // need_headroom while detach-on-home briefly drops the service.
-    if (!m_needsHeadroom)
+    // At the poll rate, not every frame: this is the UI thread, and the SD session
+    // is shared with the workers, so one open can wait for a whole read of theirs.
+    m_headroomFileAccumMs += dtSeconds * 1000.f;
+    if (!m_needsHeadroom && (dtSeconds <= 0.f || m_headroomFileAccumMs >= pollIntervalMs)) {
+        m_headroomFileAccumMs = 0.f;
         pollNeedHeadroomFile();
+    }
     if (!m_serviceOpen) {
         // Back off when FT is absent so we do not spam smGetService every frame.
         m_retryAccumMs += dtSeconds * 1000.f;

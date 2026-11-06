@@ -313,7 +313,9 @@
       "page_translate": "Translate",
       "page_teleport": "Teleport",
       "ui_wireframe": "UI Wireframe",
-      "ui_wireframe_desc": "Show outlines of all Box widgets for layout debugging."
+      "ui_wireframe_desc": "Show outlines of all Box widgets for layout debugging.",
+      "glass": "Glass Effects",
+      "glass_desc": "Turn off for plain frosted panels and a steadier frame rate."
     },
     "internet": {
       "wifi_ssid": "WiFi Network",
@@ -422,7 +424,24 @@
       "wake_power": "Wake at Power State Change",
       "wake_power_desc": "Wake the console when the AC adapter is connected or disconnected.",
       "lock_screen": "Lock Screen",
-      "lock_screen_desc": "Show the lock screen when the console wakes from sleep."
+      "lock_screen_desc": "Show the lock screen when the console wakes from sleep.",
+      "lock_single": "Unlock With One Press",
+      "lock_single_desc": "Press A once instead of the same button three times.",
+      "lock_password": "Lock Password",
+      "lock_password_desc": "4 to 8 D-pad presses. Forgot it? Delete config/SwitchU/lock_password from the SD card.",
+      "lock_picture": "Lock Picture",
+      "lock_picture_desc": "A screenshot from the Album, or what is on screen, frosted.",
+      "lock_picture_none": "HOME, frosted",
+      "lock_preview": "Preview Lock Screen",
+      "lock_preview_desc": "See the lock screen as it is set now.",
+      "lock_cascade": "Icons Fall In On Unlock",
+      "lock_cascade_desc": "The lock screen shows only the theme's background, and the icons drop into place when you unlock.",
+      "lock_music": "Music on the Lock Screen",
+      "lock_music_desc": "While a song plays on the lock screen: bars, its name and cover, and controls on L, R and ZR. The screen stays on while it plays.",
+      "screen_off_music": "Music With the Screen Off",
+      "screen_off_music_desc": "In HOME, handheld: while music plays, the power button only turns the screen off. The console stays awake and uses more battery than in sleep mode.",
+      "lock_shapes": "Animated Theme on Lock Screen",
+      "lock_shapes_desc": "Shows the theme's moving shapes, like its fireflies, on the lock screen. Uses a little more battery."
     },
     "theme": {
       "preset": "Preset",
@@ -552,7 +571,10 @@
       "clear_desc": "Remove the SteamGridDB override and restore the default.",
       "cleared": "SteamGridDB artwork cleared.",
       "nothing_to_clear": "No SteamGridDB artwork to clear."
-    }
+    },
+    "rename_title": "Rename",
+    "rename_guide": "Leave empty to use the game's own name",
+    "rename_desc": "Give this software another name on the HOME menu."
   },
   "folder": {
     "create": "Create folder",
@@ -649,7 +671,8 @@
     "previous": "Previous track",
     "switch_to_spotify": "Switch to Spotify",
     "switch_to_songs": "Switch to songs",
-    "play_pause": "Play/Pause"
+    "play_pause": "Play/Pause",
+    "calendar": "Calendar"
   },
   "controller_test": {
     "title": "Controller Test",
@@ -725,7 +748,10 @@
     "search": "Search",
     "manage": "Manage",
     "stop": "Stop",
-    "pair": "Pair"
+    "pair": "Pair",
+    "create": "Create",
+    "remove": "Remove",
+    "show": "Show"
   },
   "themeshop": {
     "source": {
@@ -949,7 +975,21 @@
     "wednesday": "Wednesday",
     "thursday": "Thursday",
     "friday": "Friday",
-    "saturday": "Saturday"
+    "saturday": "Saturday",
+    "press_a": "Press A to unlock",
+    "preview": "Press any button to close the preview.",
+    "pw_enter": "Enter your password with the D-pad",
+    "pw_make": "Press the D-pad 4 to 8 times, then A",
+    "pw_again": "Press it once more to check",
+    "pw_wrong": "Wrong password",
+    "pw_mismatch": "That didn't match. Make it again.",
+    "pw_too_short": "At least 4 presses, then A",
+    "pw_hint": "B Clear",
+    "pw_hint_make": "A Done    B Clear (again to stop)",
+    "pw_hint_stop": "B Clear (again to stop)",
+    "music_skip": "L/R: Previous/Next",
+    "music_play": "ZR: Play/Pause",
+    "music_reconnecting": "Reconnecting..."
   },
   "switify": {
     "not_installed": "Switify is not installed",
@@ -973,5 +1013,10 @@
     "search_title": "Search Spotify",
     "loading": "Loading...",
     "load_failed": "Could not load this page"
+  },
+  "calendar": {
+    "months": "January,February,March,April,May,June,July,August,September,October,November,December",
+    "weekdays": "S,M,T,W,T,F,S",
+    "first_weekday": "0"
   }
 }

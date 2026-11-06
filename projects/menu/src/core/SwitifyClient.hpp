@@ -2,6 +2,7 @@
 
 #include "SwitifyProtocol.hpp"
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -33,6 +34,7 @@ struct NowPlaying {
     bool playing = false;
     bool shuffle = false;
     bool canSeek = false;
+    bool reloading = false; // waiting for the connection to load the song again
     int repeat = 0; // SwitchU MusicRepeatMode numbering
     std::uint32_t positionMs = 0;
     std::uint32_t durationMs = 0;
@@ -91,6 +93,13 @@ public:
     void stop();
     void setDemand(Demand demand);
 
+    // The bars. Levels need our Switify build: with the official one the first
+    // request fails and levelsAvailable() turns false.
+    static constexpr int kLevelBands = 32;
+    void setLevelsWanted(bool wanted);
+    bool levelsAvailable() const { return m_levelsAvailable.load(); }
+    void levels(float* out) const;
+
     NowPlaying nowPlaying() const;
     BrowsePage browsePage() const;
     std::shared_ptr<const Cover> cover() const;
@@ -120,12 +129,16 @@ private:
     void pollStatus();
     void pollBrowse();
     void pollCover(bool hasTrack);
+    void pollLevels();
 
     mutable std::mutex m_mutex;
     std::condition_variable m_wake;
     std::thread m_thread;
     std::atomic<bool> m_stop{false};
     std::atomic<Demand> m_demand{Demand::Background};
+    std::atomic<bool> m_levelsWanted{false};
+    std::atomic<bool> m_levelsAvailable{true};
+    std::array<std::uint8_t, kLevelBands> m_levels{};
     std::vector<Request> m_requests;
     NowPlaying m_now;
     BrowsePage m_browse;

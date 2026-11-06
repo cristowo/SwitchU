@@ -9,6 +9,9 @@
 #include <switch.h>
 #ifdef SWITCHU_MENU
 #include <switchu/file_log.hpp>
+#include <switchu/smi_protocol.hpp>
+#include <atomic>
+#include <cstring>
 #endif
 
 class DebugLog {
@@ -61,6 +64,10 @@ public:
         va_start(args, fmt);
         vsnprintf(buf, sizeof(buf), fmt, args);
         va_end(args);
+#ifdef SWITCHU_MENU
+        if (liveToDaemon().load(std::memory_order_relaxed))
+            pushLiveLine(buf);
+#endif
 
         char timestamp[32];
         switchu::log_detail::format_line_timestamp(timestamp, sizeof(timestamp));
@@ -72,6 +79,10 @@ public:
         self.m_lines.push_back(line);
         if ((int)self.m_lines.size() > MAX_LINES)
             self.m_lines.erase(self.m_lines.begin());
+        // Outside the heap: a process failing its start can scribble on heap
+        // memory, and these are what the daemon gets to see of it.
+        std::snprintf(exitRing()[self.m_ringNext % kExitRingLines], kExitRingWidth, "%s", line.c_str());
+        ++self.m_ringNext;
 
 #ifdef SWITCHU_MENU
         switchu::FileLog::log("%s", buf);
@@ -90,6 +101,45 @@ public:
             (unsigned long)(total >> 10), (unsigned long)(used >> 10),
             (long)(((s64)total - (s64)used) >> 10));
         fsdevCommitDevice("sdmc");
+    }
+
+#ifdef SWITCHU_MENU
+    // While starting, every line also goes to the daemon's log: a start that
+    // fails can leave this process unable to write its own.
+    static std::atomic<bool>& liveToDaemon() {
+        static std::atomic<bool> live{false};
+        return live;
+    }
+
+    static void pushLiveLine(const char* text) {
+        const size_t len = std::strlen(text) < 400 ? std::strlen(text) : 400;
+        uint8_t data[sizeof(switchu::smi::CommandHeader) + 400];
+        const switchu::smi::CommandHeader hdr{switchu::smi::kCommandMagic,
+            static_cast<uint32_t>(switchu::smi::SystemMessage::MenuLog), 0};
+        std::memcpy(data, &hdr, sizeof(hdr));
+        std::memcpy(data + sizeof(hdr), text, len);
+        AppletStorage st{};
+        if (R_FAILED(appletCreateStorage(&st, static_cast<s64>(sizeof(hdr) + len))))
+            return;
+        if (R_SUCCEEDED(appletStorageWrite(&st, 0, data, sizeof(hdr) + len)))
+            appletPushInteractiveOutData(&st);
+        appletStorageClose(&st);
+    }
+#endif
+
+    // For a process on its way out: never waits for a thread that may be gone.
+    static std::string tailForExit() {
+        auto& self = instance();
+        std::unique_lock<std::mutex> lk(self.m_mutex, std::try_to_lock);
+        std::string out;
+        if (!lk.owns_lock())
+            return out;
+        const unsigned count = self.m_ringNext < kExitRingLines ? self.m_ringNext : kExitRingLines;
+        for (unsigned i = self.m_ringNext - count; i < self.m_ringNext; ++i) {
+            out += exitRing()[i % kExitRingLines];
+            out += '\n';
+        }
+        return out;
     }
 
     static std::vector<std::string> lines() {
@@ -114,7 +164,15 @@ private:
         self.m_sink.close();
     }
 
+    static constexpr unsigned kExitRingLines = 40;
+    static constexpr unsigned kExitRingWidth = 200;
+    static char (&exitRing())[kExitRingLines][kExitRingWidth] {
+        static char ring[kExitRingLines][kExitRingWidth];
+        return ring;
+    }
+
     std::mutex m_mutex;
+    unsigned m_ringNext = 0;
     std::vector<std::string> m_lines;
     switchu::log_detail::buffered_sink m_sink;
 };

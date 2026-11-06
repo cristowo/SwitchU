@@ -654,6 +654,37 @@ void IconGrid::startDisappearAnimation(const IconAppearOptions& opt, float dur) 
     }
 }
 
+void IconGrid::startCascadeAnimation() {
+    if (m_layoutMode == AppLayoutMode::DynamicLine) {
+        startAppearAnimation();
+        return;
+    }
+    constexpr float kRowsStagger = 0.30f;
+    constexpr float kColumnsStagger = 0.10f;
+    const int start = m_page * iconsPerPage();
+    const int end = std::min(start + iconsPerPage(), (int)m_allIcons.size());
+
+    // Measured on the tiles' own rects so a 2x2 counts as what it covers.
+    float top = 720.f, bottom = 0.f, left = 1280.f, right = 0.f;
+    for (int i = start; i < end; ++i) {
+        const nxui::Rect& r = m_allIcons[i]->rect();
+        top = std::min(top, r.bottom());
+        bottom = std::max(bottom, r.bottom());
+        left = std::min(left, r.x);
+        right = std::max(right, r.x);
+    }
+    // Lowest first: otherwise later tiles would fall through the ones already landed.
+    for (int i = start; i < end; ++i) {
+        const nxui::Rect& r = m_allIcons[i]->rect();
+        const float rowT = bottom > top ? (bottom - r.bottom()) / (bottom - top) : 0.f;
+        const float columnT = right > left ? (r.x - left) / (right - left) : 0.f;
+        nxui::Rect from = r;
+        from.y = -r.height;
+        m_allIcons[i]->setAppearOrigin(from);
+        m_allIcons[i]->startAppear(rowT * kRowsStagger + columnT * kColumnsStagger);
+    }
+}
+
 void IconGrid::startPageTransition(int targetPage) {
     if (m_layoutMode == AppLayoutMode::DynamicLine) return;
 
@@ -925,7 +956,7 @@ void IconGrid::renderLayoutMorph(nxui::Renderer& ren) {
 void IconGrid::render(nxui::Renderer& ren) {
     if (!m_visible || m_opacity <= 0.f) return;
 
-    if (!m_children.empty() && ren.gpu().offscreenReady())
+    if (!m_children.empty() && nxui::GlassPanel::effectsEnabled() && ren.gpu().offscreenReady())
         ren.captureToOffscreen(true);
 
     if (m_layoutMorphing) {

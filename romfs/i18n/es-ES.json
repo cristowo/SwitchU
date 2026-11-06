@@ -118,7 +118,9 @@
       "ui_wireframe": "Wireframe de la interfaz",
       "ui_wireframe_desc": "Muestra contornos de todos los widgets Box para depuración de layout.",
       "grid_columns": "Columnas de la cuadrícula del HOME",
-      "grid_rows": "Filas de la cuadrícula del HOME"
+      "grid_rows": "Filas de la cuadrícula del HOME",
+      "glass": "Efectos de cristal",
+      "glass_desc": "Desactívalos para usar paneles esmerilados simples y un rendimiento más estable."
     },
     "internet": {
       "wifi_ssid": "Red WiFi",
@@ -200,7 +202,24 @@
       "sleep_now": "Reposo",
       "sleep_now_desc": "Pone la consola en modo de reposo.",
       "lock_screen": "Pantalla de bloqueo",
-      "lock_screen_desc": "Muestra la pantalla de bloqueo al salir del modo de suspensión."
+      "lock_screen_desc": "Muestra la pantalla de bloqueo al salir del modo de suspensión.",
+      "lock_single": "Desbloquear con una pulsación",
+      "lock_single_desc": "Pulsa A una vez en lugar del mismo botón tres veces.",
+      "lock_password": "Contraseña de bloqueo",
+      "lock_password_desc": "De 4 a 8 pulsaciones de la cruceta. ¿La olvidaste? Borra config/SwitchU/lock_password de la SD.",
+      "lock_picture": "Imagen de bloqueo",
+      "lock_picture_desc": "Una captura del Álbum, o lo que hay en pantalla, difuminado.",
+      "lock_picture_none": "HOME difuminado",
+      "lock_preview": "Vista previa del bloqueo",
+      "lock_preview_desc": "Mira la pantalla de bloqueo con los ajustes actuales.",
+      "lock_cascade": "Iconos en cascada al desbloquear",
+      "lock_cascade_desc": "La pantalla de bloqueo muestra solo el fondo del tema y los iconos caen a su lugar al desbloquear.",
+      "lock_music": "Música en el bloqueo",
+      "lock_music_desc": "Mientras suena una canción en el bloqueo: barras, su nombre y carátula, y controles en L, R y ZR. La pantalla sigue encendida mientras suena.",
+      "screen_off_music": "Música con la pantalla apagada",
+      "screen_off_music_desc": "En HOME y en modo portátil: mientras suena música, el botón de encendido solo apaga la pantalla. La consola sigue activa y gasta más batería que suspendida.",
+      "lock_shapes": "Tema animado en el bloqueo",
+      "lock_shapes_desc": "Muestra las formas animadas del tema, como sus luciérnagas, en el bloqueo. Gasta algo más de batería."
     },
     "theme": {
       "preset": "Preajuste",
@@ -364,7 +383,10 @@
       "clear_desc": "Quita el reemplazo de SteamGridDB y restaura el predeterminado.",
       "cleared": "Arte de SteamGridDB eliminado.",
       "nothing_to_clear": "No hay arte de SteamGridDB que eliminar."
-    }
+    },
+    "rename_title": "Renombrar",
+    "rename_guide": "Déjalo vacío para usar el nombre original",
+    "rename_desc": "Dale otro nombre a este programa en el menú HOME."
   },
   "power": {
     "title": "Energía",
@@ -419,7 +441,10 @@
     "search": "Buscar",
     "manage": "Gestionar",
     "stop": "Detener",
-    "pair": "Vincular"
+    "pair": "Vincular",
+    "create": "Crear",
+    "remove": "Quitar",
+    "show": "Mostrar"
   },
   "themeshop": {
     "source": {
@@ -878,7 +903,8 @@
     "previous": "Canción anterior",
     "switch_to_spotify": "Cambiar a Spotify",
     "switch_to_songs": "Cambiar a canciones",
-    "play_pause": "Reproducir/Pausa"
+    "play_pause": "Reproducir/Pausa",
+    "calendar": "Calendario"
   },
   "controller_test": {
     "title": "Prueba de mando",
@@ -953,7 +979,21 @@
     "wednesday": "Miércoles",
     "thursday": "Jueves",
     "friday": "Viernes",
-    "saturday": "Sábado"
+    "saturday": "Sábado",
+    "press_a": "Pulsa A para desbloquear",
+    "preview": "Pulsa cualquier botón para cerrar la vista previa.",
+    "pw_enter": "Introduce tu contraseña con la cruceta",
+    "pw_make": "Pulsa la cruceta de 4 a 8 veces y luego A",
+    "pw_again": "Púlsala otra vez para comprobarla",
+    "pw_wrong": "Contraseña incorrecta",
+    "pw_mismatch": "No coincide. Créala de nuevo.",
+    "pw_too_short": "Al menos 4 pulsaciones y luego A",
+    "pw_hint": "B Borrar",
+    "pw_hint_make": "A Listo    B Borrar (otra vez para salir)",
+    "pw_hint_stop": "B Borrar (otra vez para salir)",
+    "music_skip": "L/R: Anterior/Siguiente",
+    "music_play": "ZR: Reproducir/Pausa",
+    "music_reconnecting": "Reconectando..."
   },
   "switify": {
     "not_installed": "Switify no está instalado",
@@ -977,5 +1017,10 @@
     "search_title": "Buscar en Spotify",
     "loading": "Cargando...",
     "load_failed": "No se pudo cargar esta página"
+  },
+  "calendar": {
+    "months": "Enero,Febrero,Marzo,Abril,Mayo,Junio,Julio,Agosto,Septiembre,Octubre,Noviembre,Diciembre",
+    "weekdays": "L,M,X,J,V,S,D",
+    "first_weekday": "1"
   }
 }

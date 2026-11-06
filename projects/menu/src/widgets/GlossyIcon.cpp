@@ -7,6 +7,7 @@
 #include "core/DebugLog.hpp"
 #include <nxui/core/Renderer.hpp>
 #include <nxui/core/Font.hpp>
+#include <nxui/core/I18n.hpp>
 #include <nxui/core/ThreadPool.hpp>
 #include <nxui/third_party/stb/stb_image.h>
 #include <algorithm>
@@ -23,6 +24,7 @@ struct WidgetGifDecodeState {
     int width = 0;
     int height = 0;
     long decodeMilliseconds = 0;
+    bool staticImage = false; // PNG/JPG: one frame, uploaded as m_widgetTexture
     std::atomic<bool> cancelled{false};
 };
 
@@ -30,11 +32,18 @@ namespace {
 
 constexpr int kWidgetAnimationMaximumSide = 192;
 constexpr std::size_t kWidgetAnimationGpuBytes = 1u * 1024u * 1024u;
+constexpr int kWidgetImageMaximumSide = 512;
 
 bool hasGifExtension(std::string path) {
     std::transform(path.begin(), path.end(), path.begin(),
                    [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
     return path.ends_with(".gif");
+}
+
+bool hasWebpExtension(std::string path) {
+    std::transform(path.begin(), path.end(), path.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return path.ends_with(".webp");
 }
 
 nxui::Rect centeredCoverSource(const nxui::Texture& texture,
@@ -55,6 +64,39 @@ nxui::Rect centeredCoverSource(const nxui::Texture& texture,
     const float croppedHeight = sourceWidth / targetAspect;
     return {0.f, (sourceHeight - croppedHeight) * 0.5f,
             sourceWidth, croppedHeight};
+}
+
+void decodeWidgetStaticImage(const std::string& path,
+                             const std::shared_ptr<WidgetGifDecodeState>& state) {
+    if (!state || state->cancelled.load()) return;
+    const auto started = std::chrono::steady_clock::now();
+    int width = 0, height = 0, channels = 0;
+    stbi_uc* decoded = stbi_load(path.c_str(), &width, &height, &channels, 4);
+    if (!decoded) return;
+    if (width <= 0 || height <= 0 || state->cancelled.load()) {
+        stbi_image_free(decoded);
+        return;
+    }
+    const float scale = std::min(1.f, static_cast<float>(kWidgetImageMaximumSide) /
+                                          static_cast<float>(std::max(width, height)));
+    const int outputWidth = std::max(1, static_cast<int>(static_cast<float>(width) * scale));
+    const int outputHeight = std::max(1, static_cast<int>(static_cast<float>(height) * scale));
+    std::vector<std::uint8_t> pixels(static_cast<std::size_t>(outputWidth) * outputHeight * 4u);
+    for (int y = 0; y < outputHeight; ++y) {
+        const int sourceY = y * height / outputHeight;
+        for (int x = 0; x < outputWidth; ++x) {
+            const int sourceX = x * width / outputWidth;
+            std::copy_n(decoded + (static_cast<std::size_t>(sourceY) * width + sourceX) * 4u, 4,
+                        pixels.data() + (static_cast<std::size_t>(y) * outputWidth + x) * 4u);
+        }
+    }
+    stbi_image_free(decoded);
+    state->width = outputWidth;
+    state->height = outputHeight;
+    state->frames.push_back(std::move(pixels));
+    state->durationsMs.push_back(0);
+    state->decodeMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started).count();
 }
 
 void decodeWidgetGif(const std::string& path,
@@ -142,6 +184,87 @@ void decodeWidgetGif(const std::string& path,
     }
     state->decodeMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - started).count();
+}
+
+// One item of a comma-separated translation.
+std::string listItem(const std::string& list, int index) {
+    std::size_t start = 0;
+    for (; index > 0; --index) {
+        start = list.find(',', start);
+        if (start == std::string::npos) return {};
+        ++start;
+    }
+    return list.substr(start, list.find(',', start) - start);
+}
+
+void drawCentered(nxui::Renderer& ren, nxui::Font& font, const std::string& text,
+                  const nxui::Rect& area, float scale, const nxui::Color& color) {
+    const nxui::Vec2 size = font.measure(text);
+    if (size.x > 0.f)
+        scale = std::min(scale, area.width / size.x);
+    ren.drawText(text, {area.x + (area.width - size.x * scale) * 0.5f,
+                        area.y + (area.height - size.y * scale) * 0.5f},
+                 &font, color, scale);
+}
+
+void drawCalendar(nxui::Renderer& ren, nxui::Font& font, const nxui::Rect& inner,
+                  bool month, const nxui::Color& accent, float opacity) {
+    auto& i18n = nxui::I18n::instance();
+    std::time_t now = std::time(nullptr);
+    std::tm local{};
+    localtime_r(&now, &local);
+    const nxui::Color ink = nxui::Color::white().withAlpha(0.96f * opacity);
+    const nxui::Color soft = nxui::Color::white().withAlpha(0.68f * opacity);
+
+    if (!month) {
+        static constexpr const char* kDayKeys[7][2] = {
+            {"lockscreen.sunday", "Sunday"},       {"lockscreen.monday", "Monday"},
+            {"lockscreen.tuesday", "Tuesday"},     {"lockscreen.wednesday", "Wednesday"},
+            {"lockscreen.thursday", "Thursday"},   {"lockscreen.friday", "Friday"},
+            {"lockscreen.saturday", "Saturday"},
+        };
+        const auto& day = kDayKeys[local.tm_wday % 7];
+        drawCentered(ren, font, i18n.tr(day[0], day[1]),
+                     {inner.x + 8.f, inner.y + inner.height * 0.10f, inner.width - 16.f, inner.height * 0.24f},
+                     0.56f, soft);
+        drawCentered(ren, font, std::to_string(local.tm_mday),
+                     {inner.x + 8.f, inner.y + inner.height * 0.34f, inner.width - 16.f, inner.height * 0.56f},
+                     1.9f, ink);
+        return;
+    }
+
+    const std::string months = i18n.tr("calendar.months",
+        "January,February,March,April,May,June,July,August,September,October,November,December");
+    const std::string weekdays = i18n.tr("calendar.weekdays", "S,M,T,W,T,F,S");
+    const int firstWeekday = i18n.tr("calendar.first_weekday", "0") == "1" ? 1 : 0;
+
+    const float headerH = inner.height * 0.15f;
+    drawCentered(ren, font,
+                 listItem(months, local.tm_mon) + " " + std::to_string(local.tm_year + 1900),
+                 {inner.x + 8.f, inner.y + 4.f, inner.width - 16.f, headerH}, 0.6f, ink);
+
+    // A weekday row and up to six weeks.
+    const float top = inner.y + 4.f + headerH;
+    const float cellW = (inner.width - 12.f) / 7.f;
+    const float cellH = (inner.bottom() - top - 4.f) / 7.f;
+    const auto cell = [&](int column, int row) {
+        return nxui::Rect{inner.x + 6.f + column * cellW, top + row * cellH, cellW, cellH};
+    };
+    for (int column = 0; column < 7; ++column)
+        drawCentered(ren, font, listItem(weekdays, column), cell(column, 0), 0.44f, soft);
+
+    const int blanks = switchu::widgets::calendarLeadingBlanks(
+        local.tm_mday, local.tm_wday, firstWeekday);
+    const int days = switchu::widgets::calendarDaysInMonth(local.tm_year + 1900, local.tm_mon + 1);
+    for (int day = 1; day <= days; ++day) {
+        const int index = blanks + day - 1;
+        const nxui::Rect r = cell(index % 7, index / 7 + 1);
+        const bool today = day == local.tm_mday;
+        if (today)
+            ren.drawCircle({r.x + r.width * 0.5f, r.y + r.height * 0.5f},
+                           std::min(r.width, r.height) * 0.5f, accent.withAlpha(0.95f * opacity));
+        drawCentered(ren, font, std::to_string(day), r, 0.46f, today ? ink : soft);
+    }
 }
 
 void drawBatteryRing(nxui::Renderer& ren, const nxui::Vec2& center,
@@ -313,7 +436,7 @@ bool GlossyIcon::loadWidgetImageAsset(nxui::GpuDevice& gpu,
     }
 
     auto texture = std::make_unique<nxui::Texture>();
-    if (texture->loadFromFile(gpu, renderer, m_widgetAssetPath, 512)) {
+    if (texture->loadFromFile(gpu, renderer, m_widgetAssetPath, kWidgetImageMaximumSide)) {
         m_widgetTexture = std::move(texture);
         return true;
     }
@@ -326,16 +449,23 @@ bool GlossyIcon::startWidgetImageAssetLoad(nxui::ThreadPool& threadPool,
     if (m_widgetAssetPath.empty() || isWidgetImageAssetLoaded() ||
         isWidgetImageAssetLoading())
         return false;
-    if (!hasGifExtension(m_widgetAssetPath))
+    // ponytail: WebP still decodes here, inside SidebarAnimation::load; split
+    // that into decode + upload if WebP widgets show up in the frame log.
+    if (hasWebpExtension(m_widgetAssetPath))
         return loadWidgetImageAsset(gpu, renderer);
 
     m_widgetAssetLoadAttempted = true;
     m_widgetGifUploadIndex = 0;
     auto state = std::make_shared<WidgetGifDecodeState>();
+    state->staticImage = !hasGifExtension(m_widgetAssetPath);
     m_widgetGifDecode = state;
     const std::string path = m_widgetAssetPath;
-    m_widgetGifDecodeFuture = threadPool.submit(
-        [state, path]() { decodeWidgetGif(path, state); });
+    m_widgetGifDecodeFuture = threadPool.submit([state, path]() {
+        if (state->staticImage)
+            decodeWidgetStaticImage(path, state);
+        else
+            decodeWidgetGif(path, state);
+    });
     return true;
 }
 
@@ -369,6 +499,16 @@ bool GlossyIcon::pollWidgetImageAssetLoad(nxui::GpuDevice& gpu,
         m_widgetGifDecode.reset();
         m_widgetGifUploadIndex = 0;
         return false;
+    }
+
+    if (state->staticImage) {
+        auto texture = std::make_unique<nxui::Texture>();
+        if (texture->loadFromPixels(gpu, renderer, state->frames.front().data(),
+                                    state->width, state->height))
+            m_widgetTexture = std::move(texture);
+        m_widgetGifDecode.reset();
+        m_widgetGifUploadIndex = 0;
+        return true;
     }
 
     const std::size_t index = m_widgetGifUploadIndex;
@@ -848,6 +988,20 @@ void GlossyIcon::onContentRender(nxui::Renderer& ren) {
             const float timeHeight = timeMeasure.y * timeScale;
             const float textTop = bodyTop +
                 (bodyHeight - nameHeight - timeHeight - 4.f * s) * 0.5f;
+            // Faint, behind the name: rising from the card's floor beside the cover.
+            if (m_widgetType == switchu::widgets::WidgetType::NowPlaying && m_widgetBars) {
+                const float step = textWidth / static_cast<float>(m_widgetBarCount);
+                const float maxHeight = inner.height * 0.62f;
+                for (int i = 0; i < m_widgetBarCount; ++i) {
+                    const float level = m_widgetBars[i];
+                    if (level < 0.01f) continue;
+                    const float height = maxHeight * level;
+                    ren.drawRoundedRect({textX + step * static_cast<float>(i) + step * 0.2f,
+                                         inner.bottom() - 6.f * s - height, step * 0.6f, height},
+                                        nxui::Color::white().withAlpha((0.10f + 0.20f * level) * m_opacity),
+                                        step * 0.3f);
+                }
+            }
             ren.drawText(m_widgetPrimary, {textX, textTop}, m_font,
                          nxui::Color::white().withAlpha(0.96f * m_opacity), nameScale);
             ren.drawText(m_widgetSecondary,
@@ -870,6 +1024,14 @@ void GlossyIcon::onContentRender(nxui::Renderer& ren) {
             drawBatteryRing(ren, center, radius,
                 m_consoleBatteryPercent, m_consoleBatteryCharging,
                 true, m_batteryConsoleIcon, m_font, m_opacity);
+            return;
+        }
+
+        if (m_widgetType == switchu::widgets::WidgetType::Calendar) {
+            ren.drawRoundedRect(inner, m_loadingColor.withAlpha(0.13f * m_opacity),
+                                std::max(9.f, rad - 5.f));
+            if (m_font)
+                drawCalendar(ren, *m_font, inner, m_widgetColumns > 1, m_loadingColor, m_opacity);
             return;
         }
 
@@ -1026,14 +1188,27 @@ void GlossyIcon::onContentRender(nxui::Renderer& ren) {
         && !m_posterFrame) {
         const nxui::Rect card = r.shrunk(std::max(8.f, 10.f * s));
         const float contentRadius = std::max(8.f, rad - 5.f);
+        const bool wideThumbUsable = m_wideThumb && m_wideThumb->valid();
         if (m_wideGameHero && m_wideGameHero->valid()) {
             ren.drawTextureSubRounded(
                 m_wideGameHero, centeredCoverSource(*m_wideGameHero, card), card,
+                contentRadius, nxui::Color::white().withAlpha(m_opacity));
+        } else if (wideThumbUsable) {
+            // Already a complete small card, logo included.
+            ren.drawTextureSubRounded(m_wideThumb, m_wideThumbSource, card,
                 contentRadius, nxui::Color::white().withAlpha(m_opacity));
         } else if (m_tex && m_tex->valid()) {
             ren.drawTextureSubRounded(
                 m_tex, centeredCoverSource(*m_tex, card), card,
                 contentRadius, nxui::Color::white().withAlpha(m_opacity));
+        } else if (m_iconThumb && m_iconThumb->valid()) {
+            const float cropped = m_iconThumbSource.height * card.height
+                / std::max(1.f, card.width);
+            ren.drawTextureSubRounded(m_iconThumb,
+                {m_iconThumbSource.x, m_iconThumbSource.y
+                     + (m_iconThumbSource.height - cropped) * 0.5f,
+                 m_iconThumbSource.width, cropped},
+                card, contentRadius, nxui::Color::white().withAlpha(m_opacity));
         } else {
             ren.drawRoundedRect(card,
                 m_loadingColor.withAlpha(0.18f * m_opacity), contentRadius);
@@ -1056,6 +1231,8 @@ void GlossyIcon::onContentRender(nxui::Renderer& ren) {
                             nxui::Color::white().withAlpha(0.98f * m_opacity));
         } else if (m_font && !m_title.empty()
                    && !(m_wideGameHero && m_wideGameHero->valid())
+                   && !wideThumbUsable
+                   && !(m_iconThumb && m_iconThumb->valid())
                    && !(m_tex && m_tex->valid())) {
             // Title fallback only on empty wide cards — never overlay hero/icon.
             const auto measured = m_font->measure(m_title);
@@ -1073,6 +1250,20 @@ void GlossyIcon::onContentRender(nxui::Renderer& ren) {
     if (!m_tex || !m_tex->valid()) {
         if (m_titleId == 0)
             return;
+
+        // Square small copy from the atlas. Poster frames keep the spinner: a
+        // square cell does not belong in a tall face.
+        if (m_iconThumb && m_iconThumb->valid() && !m_posterFrame) {
+            nxui::Color tint = nxui::Color::white().withAlpha(m_opacity);
+            if (m_notLaunchable) {
+                tint.r = 0.80f;
+                tint.g = 0.80f;
+                tint.b = 0.80f;
+            }
+            ren.drawTextureSubRounded(m_iconThumb, m_iconThumbSource, r.shrunk(8.f * s),
+                                      rad - 3.f, tint);
+            return;
+        }
 
         const nxui::Vec2 center{r.x + r.width * 0.5f, r.y + r.height * 0.5f};
         const float outerRadius = std::clamp(std::min(r.width, r.height) * 0.105f,

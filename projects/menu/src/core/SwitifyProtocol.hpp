@@ -40,6 +40,8 @@ enum class IpcCommand : std::uint32_t {
     BrowsePlay = 35,
     BrowseCurrentPlaylist = 36,
     BrowseQueue = 37,
+    GetAudioLevels = 38, // our Switify fork only; official builds reject it
+    ReloadCurrent = 39,  // same
 };
 
 inline constexpr std::uint32_t kStatusFlagConnected = 1u << 0;
@@ -48,6 +50,8 @@ inline constexpr std::uint32_t kStatusFlagRepeatOne = 1u << 3;
 inline constexpr std::uint32_t kStatusFlagRepeatAll = 1u << 4;
 inline constexpr std::uint32_t kStatusFlagCanSeek = 1u << 5;
 inline constexpr std::uint32_t kStatusFlagHasTrack = 1u << 6;
+// SwitchU's Switify only: the song waits to be loaded again (after a sleep).
+inline constexpr std::uint32_t kStatusFlagReloading = 1u << 8;
 
 inline constexpr std::uint32_t kBrowseIdle = 0;
 inline constexpr std::uint32_t kBrowseLoading = 1;

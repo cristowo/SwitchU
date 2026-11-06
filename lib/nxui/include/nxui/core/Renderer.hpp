@@ -162,6 +162,11 @@ public:
     void updateTexture(int slot, const dk::ImageView& view);
     void releaseTextureSlot(int slot);
     void reclaimReleasedTextureSlotsAfterIdle();
+#ifdef NXUI_BACKEND_DEKO3D
+    // A gone texture's pixels: freed a few frames later, when no frame in
+    // flight can still read them (no waiting for the GPU here).
+    void retireImageMemory(dk::UniqueMemBlock&& block, uint32_t size);
+#endif
 #endif
     void bindTexture(int slot);
     void resetTextureSlots();
@@ -224,6 +229,14 @@ private:
         std::uint64_t reusableFrame = 0;
     };
     std::vector<DeferredDescSlot> m_deferredDescSlots;
+#ifdef NXUI_BACKEND_DEKO3D
+    struct DeferredImage {
+        dk::UniqueMemBlock block;
+        std::uint64_t freeFrame = 0;
+    };
+    std::vector<DeferredImage> m_deferredImages;
+    void releaseDeferredImages(bool all);
+#endif
     std::uint64_t m_frameSerial = 0;
     static constexpr int WHITE_TEX_SLOT = 0;
 

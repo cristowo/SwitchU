@@ -1,3 +1,107 @@
+<!-- Bloque compartido: es el mismo en cristowo/SwitchU y cristowo/Switify. -->
+# SwitchU + Switify (fork de cristowo)
+
+Dos forks que funcionan juntos en la Switch:
+
+| Repositorio | Fork de | Rama | Qué es |
+| --- | --- | --- | --- |
+| [cristowo/SwitchU](https://github.com/cristowo/SwitchU) | [PoloNX/SwitchU](https://github.com/PoloNX/SwitchU) | `switify-integration` | Menú HOME estilo Wii U, con Spotify integrado |
+| [cristowo/Switify](https://github.com/cristowo/Switify) | [DomazinUS/Switify](https://github.com/DomazinUS/Switify) | `switchu` | Servicio en segundo plano de Switify, ajustado para SwitchU |
+
+## Créditos
+
+- **SwitchU**: [PoloNX](https://github.com/PoloNX) y sus colaboradores (GPL-3.0).
+  [uLaunch](https://github.com/Xortroll/uLaunch), de [Xortroll](https://github.com/Xortroll),
+  inspiró el proyecto.
+- **HomeNX**: la pantalla de bloqueo y su contraseña, el zoom al salir de un juego,
+  la subida de texturas sin bloqueo, los nombres de juego personalizados, el ajuste
+  de efectos de cristal y la temperatura del chip vienen de
+  [HomeNX](https://github.com/ad3333m/homenx), de ad3333m (GPL-3.0). Su pantalla de
+  bloqueo es de PowerCmptr.
+- **Switify**: HiroshiYamauchi ([DomazinUS/Switify](https://github.com/DomazinUS/Switify)).
+  La app es GPL-3.0-or-later y el overlay GPL-2.0-only. Usa
+  [cspot](https://github.com/feelfreelinux/cspot) y bell, de feelfreelinux y
+  colaboradores; el resto de dependencias está en `THIRD_PARTY_NOTICES.md` de Switify.
+- **Cambios de estos forks**: cristowo, desarrollados con Claude Code (Anthropic).
+
+Todo el trabajo original pertenece a sus autores. Estos forks mantienen sus licencias.
+
+## Qué cambia respecto a los originales
+
+### SwitchU
+
+- **Música unificada**: selector Canciones / Spotify en los Ajustes rápidos (L).
+  Spotify se controla y se explora (cola, playlist, biblioteca, inicio, búsqueda)
+  a través del servicio de Switify. Suena una sola fuente a la vez. Hay un widget
+  "Reproduciendo" con portada y barras de espectro.
+- **Pantalla de bloqueo** al despertar, con contraseña opcional, controles de música
+  y barras de espectro. Muestra "Reconectando..." mientras Spotify vuelve.
+- **Al encender la consola** vuelve la música propia de SwitchU, aunque lo último
+  haya sido Spotify.
+- **Cerrar juego**: pide confirmación y cierra al instante, como el HOME original.
+  Antes esperaba hasta 15 s a un juego suspendido.
+- **Fiabilidad**:
+  - el menú elige su memoria según lo que queda libre;
+  - se reconecta a la SD si el sistema le corta la sesión;
+  - manda su log en vivo al daemon durante el arranque, así un fallo al iniciar queda registrado;
+  - los logs viejos del daemon se borran por fecha.
+
+### Switify (solo el servicio en segundo plano)
+
+El detalle está en `SWITCHU-CHANGES.md` de Switify. En resumen:
+
+- **`GetAudioLevels` (comando 38)**: 32 bandas del audio que suena, para las barras
+  de SwitchU. Solo se calculan si alguien las pide.
+- **`ReloadCurrent` (comando 39)**: tras suspender la consola, espera a que vuelva la
+  sesión de Spotify y retoma la misma canción donde iba, en vez de saltarla.
+- **Lo cargado sigue sonando al reconectar**: al despertar suena el audio que ya
+  estaba en memoria. Si se acaba, la canción espera en ese punto y no salta a la
+  siguiente. El estado lleva el flag `SwitifyStatusFlag_Reloading` (bit 8) mientras tanto.
+- **Memoria a demanda**: el heap ya no es un bloque fijo de 4 MiB. Se toma en pasos
+  de 2 MiB según se necesita, hasta el mismo máximo. El servicio cuenta contra la
+  memoria del sistema, y con 4 MiB fijos abrir HOME sobre un juego podía agotarla:
+  el menú se quedaba en negro.
+- **Errores del CDN**: un hueco en el audio ya no cambia de canción, y una página de
+  error del CDN ya no se decodifica como audio.
+
+## Cómo dependen uno del otro
+
+- **SwitchU funciona sin Switify**, pero solo con su música propia. Para Spotify hace
+  falta el servicio de Switify en
+  `sdmc:/atmosphere/contents/4200000000535754/exefs.nsp`. También hay que haber
+  iniciado sesión una vez con la app de Switify (NRO), porque el servicio reutiliza
+  esas credenciales en `sdmc:/config/Switify/`.
+- **Con el servicio oficial de Switify** Spotify también funciona, pero:
+  - no hay barras de espectro;
+  - tras suspender, la canción puede saltar o quedarse en silencio;
+  - el heap fijo de 4 MiB puede dejar el sistema sin memoria al abrir HOME sobre un juego.
+- **Este fork de Switify solo reemplaza el servicio en segundo plano**. El overlay
+  y la app NRO oficiales siguen sirviendo tal cual: el servicio les responde igual
+  y ellos ignoran los comandos y el flag nuevos.
+- **El protocolo IPC está definido en dos sitios que deben coincidir**:
+  `phase2/common/include/switify/ipc_protocol.h` en Switify y
+  `projects/menu/src/core/SwitifyProtocol.hpp` en SwitchU. Un comando nuevo se añade
+  en ambos.
+
+### Compilar e instalar
+
+- **SwitchU**: con xmake y devkitPro (ver "How to build" más abajo). `xmake install -o sd_out`
+  deja en `sd_out/` la estructura de la SD.
+- **Servicio de Switify**: con devkitA64 r30 (GCC 16), como el oficial. Desde la raíz de Switify:
+
+  ```
+  cmake -S phase2/sysmodule -B phase2/build_engine -G Ninja -DCMAKE_TOOLCHAIN_FILE=/opt/devkitpro/cmake/Switch.cmake -DCMAKE_BUILD_TYPE=Release
+  ninja -C phase2/build_engine switify-background-package
+  ```
+
+  Copia `phase2/build_engine/switify-background.nsp` como
+  `sdmc:/atmosphere/contents/4200000000535754/exefs.nsp`.
+- **Reinicia la consola** después de cambiar el daemon de SwitchU o el servicio de Switify.
+
+---
+
+<!-- Fin del bloque compartido. Abajo sigue el README original del proyecto. -->
+
 <div align="center">
     <h1>SwitchU</h1>
     <p>A Wii U-style custom home menu replacement for Nintendo Switch</p>
@@ -108,6 +212,7 @@ If you want to help, open an issue when you find a bug and open a pull request i
 ## Credits
 
 - Thanks to [Xortroll](https://github.com/Xortroll) for the help and for [uLaunch](https://github.com/Xortroll/uLaunch) which inspired this project a lot
+- Lock screen look and password, the zoom out of a game, non-blocking texture uploads, custom game names, the glass effects switch and the chip temperature reading come from [HomeNX](https://github.com/ad3333m/homenx) by ad3333m (GPL-3.0); its lock screen is by PowerCmptr
 
 ## License
 

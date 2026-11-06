@@ -62,19 +62,24 @@ Texture& Texture::operator=(Texture&& o) noexcept {
 // drawing. The user's file was never corrupt -- both default covers are the
 // same 1280x720 JPEG, and his copy is byte-for-byte the right size.
 //
-// The wait only happens when there is something live to retire, which is a
-// theme change or a cache eviction, not every frame.
+// Neither goes back straight away: both wait out the frames in flight
+// (Renderer::beginFrame), so nothing here waits for the GPU.
 void Texture::retireGpuResources() {
     const bool holdsMemory = m_gpu && m_mem && m_allocSize > 0;
     if (m_slot < 0 && !holdsMemory)
         return;
-    if (m_gpu)
-        m_gpu->waitIdle();
-    if (m_renderer && m_slot >= 0)
-        m_renderer->releaseTextureSlot(m_slot);
+    if (m_renderer) {
+        if (m_slot >= 0)
+            m_renderer->releaseTextureSlot(m_slot);
+        if (holdsMemory)
+            m_renderer->retireImageMemory(static_cast<dk::UniqueMemBlock&&>(m_mem), m_allocSize);
+    } else {
+        if (m_gpu)
+            m_gpu->waitIdle();
+        if (holdsMemory)
+            m_gpu->freeImageMemory(m_allocSize);
+    }
     m_slot = -1;
-    if (holdsMemory)
-        m_gpu->freeImageMemory(m_allocSize);
     m_allocSize = 0;
     m_valid = false;
 }
@@ -88,15 +93,15 @@ bool Texture::loadFromPixels(GpuDevice& gpu, Renderer& ren,
 {
     m_gpu = &gpu;
     m_renderer = &ren;
+
+    // Reloading in place is the same hazard as destruction: the old block and
+    // descriptor belong to the frame in flight. They retire like a destroyed
+    // texture's, frames from now, and this load takes new ones. Waiting for the
+    // GPU here instead stalled every icon that reused a pool slot.
+    if (m_valid)
+        retireGpuResources();
     int oldSlot = m_slot;
     uint32_t oldAllocSize = m_allocSize;
-
-    // Reloading in place is the same hazard as destruction: below, the old
-    // MemBlock is dropped when a bigger one is needed, and the descriptor at
-    // oldSlot is rewritten to point at the new image. Both belong to the frame
-    // in flight until the GPU says otherwise.
-    if (m_valid && (oldSlot >= 0 || m_mem))
-        gpu.waitIdle();
 
     m_valid = false;
     m_slot  = -1;
@@ -191,6 +196,15 @@ bool Texture::loadFromPixels(GpuDevice& gpu, Renderer& ren,
     }
     m_valid = true;
     return true;
+}
+
+bool Texture::updateRegion(const uint8_t* rgba, int x, int y, int w, int h) {
+    if (!m_valid || !m_gpu || x < 0 || y < 0 || w <= 0 || h <= 0 ||
+        x + w > m_width || y + h > m_height)
+        return false;
+    return m_gpu->uploadTextureRegion(m_image, rgba, static_cast<uint32_t>(x),
+                                      static_cast<uint32_t>(y), static_cast<uint32_t>(w),
+                                      static_cast<uint32_t>(h));
 }
 
 bool Texture::loadFromPixelsPooled(GpuDevice& gpu, Renderer& ren,

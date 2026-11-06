@@ -34,6 +34,9 @@ public:
     bool loadFromPixels(GpuDevice& gpu, Renderer& ren,
                         const uint8_t* rgba, int w, int h);
 
+    // Replace a rectangle of an already loaded texture (RGBA, tightly packed).
+    bool updateRegion(const uint8_t* rgba, int x, int y, int w, int h);
+
     // Load from RGBA pixel data into a shared pool MemBlock (no per-texture allocation).
     bool loadFromPixelsPooled(GpuDevice& gpu, Renderer& ren,
                               const uint8_t* rgba, int w, int h);

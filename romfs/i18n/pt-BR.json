@@ -96,7 +96,9 @@
       "page_translate": "Deslizar",
       "page_teleport": "Teletransportar",
       "ui_wireframe": "Wireframe da UI",
-      "ui_wireframe_desc": "Mostra os contornos de todos os widgets de caixa para depuração de layout."
+      "ui_wireframe_desc": "Mostra os contornos de todos os widgets de caixa para depuração de layout.",
+      "glass": "Efeitos de vidro",
+      "glass_desc": "Desative para painéis foscos simples e uma taxa de quadros mais estável."
     },
     "internet": {
       "wifi_ssid": "Rede WiFi",
@@ -156,7 +158,24 @@
       "wake_power": "Despertar ao Mudar Estado de Energia",
       "wake_power_desc": "Desperta o console quando o adaptador AC é conectado ou desconectado.",
       "lock_screen": "Tela de bloqueio",
-      "lock_screen_desc": "Mostra a tela de bloqueio quando o console sai do modo de espera."
+      "lock_screen_desc": "Mostra a tela de bloqueio quando o console sai do modo de espera.",
+      "lock_single": "Desbloquear com um toque",
+      "lock_single_desc": "Pressione A uma vez em vez do mesmo botão três vezes.",
+      "lock_password": "Senha de bloqueio",
+      "lock_password_desc": "De 4 a 8 toques no direcional. Esqueceu? Apague config/SwitchU/lock_password do cartão SD.",
+      "lock_picture": "Imagem de bloqueio",
+      "lock_picture_desc": "Uma captura do Álbum, ou o que está na tela, desfocado.",
+      "lock_picture_none": "HOME desfocado",
+      "lock_preview": "Prévia do bloqueio",
+      "lock_preview_desc": "Veja a tela de bloqueio com os ajustes atuais.",
+      "lock_cascade": "Ícones em cascata ao desbloquear",
+      "lock_cascade_desc": "A tela de bloqueio mostra apenas o fundo do tema e os ícones caem no lugar ao desbloquear.",
+      "lock_music": "Música na tela de bloqueio",
+      "lock_music_desc": "Enquanto uma música toca na tela de bloqueio: barras, nome, capa e controles em L, R e ZR. A tela fica ligada enquanto toca.",
+      "screen_off_music": "Música com a tela desligada",
+      "screen_off_music_desc": "No HOME, modo portátil: enquanto toca música, o botão POWER só desliga a tela. O console fica ativo e gasta mais bateria que em repouso.",
+      "lock_shapes": "Tema animado na tela de bloqueio",
+      "lock_shapes_desc": "Mostra as formas animadas do tema, como os vaga-lumes, na tela de bloqueio. Gasta um pouco mais de bateria."
     },
     "theme": {
       "preset": "Predefinição",
@@ -248,7 +267,10 @@
     "close_title": "Fechar jogo",
     "close_prefix": "Fechar",
     "close_suffix": "?\nO progresso não salvo será perdido.",
-    "replace_message": "O software suspenso no momento será fechado.\nO progresso não salvo será perdido."
+    "replace_message": "O software suspenso no momento será fechado.\nO progresso não salvo será perdido.",
+    "rename_title": "Renomear",
+    "rename_guide": "Deixe vazio para usar o nome original",
+    "rename_desc": "Dê outro nome a este software no menu HOME."
   },
   "power": {
     "title": "Energia",
@@ -288,7 +310,11 @@
     "cancel": "Cancelar",
     "delete": "Excluir",
     "close": "Close",
-    "replace": "Replace"
+    "replace": "Replace",
+    "rename": "Renomear",
+    "create": "Criar",
+    "remove": "Remover",
+    "show": "Mostrar"
   },
   "themeshop": {
     "source": {
@@ -570,7 +596,21 @@
     "wednesday": "Quarta-feira",
     "thursday": "Quinta-feira",
     "friday": "Sexta-feira",
-    "saturday": "Sábado"
+    "saturday": "Sábado",
+    "press_a": "Pressione A para desbloquear",
+    "preview": "Pressione qualquer botão para fechar a prévia.",
+    "pw_enter": "Digite sua senha com o direcional",
+    "pw_make": "Pressione o direcional de 4 a 8 vezes e depois A",
+    "pw_again": "Digite mais uma vez para confirmar",
+    "pw_wrong": "Senha incorreta",
+    "pw_mismatch": "Não coincide. Crie novamente.",
+    "pw_too_short": "Pelo menos 4 toques e depois A",
+    "pw_hint": "B Limpar",
+    "pw_hint_make": "A Pronto    B Limpar (de novo para sair)",
+    "pw_hint_stop": "B Limpar (de novo para sair)",
+    "music_skip": "L/R: Anterior/Próxima",
+    "music_play": "ZR: Tocar/Pausar",
+    "music_reconnecting": "Reconectando..."
   },
   "widget": {
     "now_playing": "Tocando agora",
@@ -580,7 +620,8 @@
     "previous": "Faixa anterior",
     "switch_to_spotify": "Mudar para o Spotify",
     "switch_to_songs": "Mudar para músicas",
-    "play_pause": "Reproduzir/Pausar"
+    "play_pause": "Reproduzir/Pausar",
+    "calendar": "Calendário"
   },
   "switify": {
     "not_installed": "O Switify não está instalado",
@@ -604,5 +645,10 @@
     "search_title": "Buscar no Spotify",
     "loading": "Carregando...",
     "load_failed": "Não foi possível carregar esta página"
+  },
+  "calendar": {
+    "months": "Janeiro,Fevereiro,Março,Abril,Maio,Junho,Julho,Agosto,Setembro,Outubro,Novembro,Dezembro",
+    "weekdays": "D,S,T,Q,Q,S,S",
+    "first_weekday": "0"
   }
 }

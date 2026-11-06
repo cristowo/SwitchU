@@ -60,6 +60,9 @@ struct ThemeBackgroundConfig {
     bool fixedOrientation = false;
     float orientationDegrees = 0.f;
     float cornerRoundness = 0.f;
+    float twinkle = 0.f;
+    float twinkleSpeed = 0.25f;
+    float glow = 0.f;
 };
 
 struct ThemeFontConfig {

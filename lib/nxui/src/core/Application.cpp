@@ -47,10 +47,10 @@ bool Application::applyPendingActivity() {
 }
 
 bool Application::initialize() {
-    if (!m_gpu.initialize()) return false;
+    if (!m_gpu.initialize()) { m_initFailStep = "gpu"; return false; }
 
     m_renderer = std::make_unique<Renderer>(m_gpu);
-    if (!m_renderer->initialize()) return false;
+    if (!m_renderer->initialize()) { m_initFailStep = "renderer"; return false; }
 
     m_input.initialize();
 
@@ -67,7 +67,7 @@ bool Application::initialize() {
     if (m_activity) {
         // Set the root box to cover the entire screen
         m_activity->m_rootBox->setRect({0, 0, (float)m_gpu.width(), (float)m_gpu.height()});
-        if (!m_activity->onCreate()) return false;
+        if (!m_activity->onCreate()) { m_initFailStep = "activity"; return false; }
     }
     return true;
 }
@@ -253,6 +253,8 @@ void Application::run() {
     uint64_t prevTick = armGetSystemTick();
     float idleSeconds = 0.f;
     unsigned idleFrame = 0;
+    bool docked = false;
+    int dockCheckIn = 0;
 
     while (m_running) {
         uint64_t nowTick = armGetSystemTick();
@@ -282,6 +284,7 @@ void Application::run() {
             idleSeconds += dt;
         }
         dispatchInput();
+        const uint64_t inputDone = armGetSystemTick();
 
         if (m_activity) {
             m_activity->onUpdate(dt);
@@ -293,28 +296,61 @@ void Application::run() {
 
             if (m_renderEnabled) {
                 // Static menus do not need a full GPU submission at 60 Hz.
-                // Keep input/update responsive, but present every other frame
-                // after the UI has been idle long enough for transitions to
-                // settle. Any new input immediately restores 60 Hz.
-                // ponytail: two fixed steps (30 Hz after 2 s, 15 Hz after 20 s);
-                // track per-widget animation state if this ever looks choppy.
-                if (idleSeconds >= 2.f) {
-                    const unsigned stride = idleSeconds >= 20.f ? 4u : 2u;
-                    if (++idleFrame % stride != 0) {
-                        svcSleepThread(16'000'000ULL);
-                        continue;
+                // Keep input/update responsive, but on battery present every
+                // other frame once the UI has been idle long enough for
+                // transitions to settle. Any new input immediately restores
+                // 60 Hz. Docked stays at 60 Hz, and 30 Hz is the floor: the
+                // background keeps animating and looks choppy below that.
+                unsigned stride = 1;
+                if (m_idlePresentStride > 1) {
+                    if (idleSeconds >= 0.3f)
+                        stride = m_idlePresentStride;
+                } else if (idleSeconds >= 2.f) {
+                    // appletGetOperationMode() is not refreshed without
+                    // appletMainLoop, so ask AM, about once a second.
+                    if (--dockCheckIn <= 0) {
+                        dockCheckIn = 60;
+                        u8 mode = AppletOperationMode_Handheld;
+                        Service* session = appletGetServiceSession_CommonStateGetter();
+                        docked = session
+                            && R_SUCCEEDED(serviceDispatchOut(session, 5, mode))
+                            && mode == AppletOperationMode_Console;
                     }
+                    if (!docked)
+                        stride = 2;
                 }
+                if (stride > 1 && ++idleFrame % stride != 0) {
+                    svcSleepThread(16'000'000ULL);
+                    continue;
+                }
+                const uint64_t updateDone = armGetSystemTick();
                 m_gpu.beginFrame();
+                const uint64_t acquireDone = armGetSystemTick();
                 m_renderer->beginFrame();
                 m_activity->m_rootBox->render(*m_renderer);
                 m_activity->onRender(*m_renderer);
                 m_renderer->endFrame();
+                const uint64_t renderDone = armGetSystemTick();
                 m_gpu.endFrame();
+                const uint64_t presentDone = armGetSystemTick();
                 m_activity->onAfterPresent(*m_renderer);
+                if (m_frameObserver) {
+                    const float toMs = 1000.f / static_cast<float>(armGetSystemTickFreq());
+                    const uint64_t frameDone = armGetSystemTick();
+                    FrameTiming timing;
+                    timing.inputMs = static_cast<float>(inputDone - nowTick) * toMs;
+                    timing.updateMs = static_cast<float>(updateDone - inputDone) * toMs;
+                    timing.acquireMs = static_cast<float>(acquireDone - updateDone) * toMs;
+                    timing.renderMs = static_cast<float>(renderDone - acquireDone) * toMs;
+                    timing.presentMs = static_cast<float>(presentDone - renderDone) * toMs;
+                    timing.afterMs = static_cast<float>(frameDone - presentDone) * toMs;
+                    timing.totalMs = static_cast<float>(frameDone - nowTick) * toMs;
+                    m_frameObserver(timing);
+                }
             } else {
                 // Yield CPU while another app owns the foreground.
-                svcSleepThread(100000000LL); // 100 ms
+                // Under the 0.1 s dt clamp above, or timers would crawl.
+                svcSleepThread(50000000LL); // 50 ms
             }
         }
     }

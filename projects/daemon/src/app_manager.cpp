@@ -185,10 +185,13 @@ Result ApplicationSession::stopCurrent(std::uint64_t gracefulTimeoutNs,
         "[app] session=%lu stop reason=%s title=0x%016lX",
         static_cast<unsigned long>(m_sessionId), reason, m_titleId);
 
-    const Result requestRc = appletApplicationRequestExit(&m_application);
-    switchu::FileLog::log("[app] RequestExit rc=0x%X", requestRc);
-
-    Result waitRc = eventWait(&m_application.StateChangedEvent, gracefulTimeoutNs);
+    // No grace period: end it now (the stock HOME menu's "Close" does the same).
+    Result waitRc = KERNELRESULT(TimedOut);
+    if (gracefulTimeoutNs != 0) {
+        const Result requestRc = appletApplicationRequestExit(&m_application);
+        switchu::FileLog::log("[app] RequestExit rc=0x%X", requestRc);
+        waitRc = eventWait(&m_application.StateChangedEvent, gracefulTimeoutNs);
+    }
     if (waitRc == KERNELRESULT(TimedOut) || R_FAILED(waitRc)) {
         switchu::FileLog::log("[app] graceful exit unavailable rc=0x%X; forcing terminate",
                               waitRc);
@@ -323,7 +326,10 @@ Result ApplicationSession::terminate() {
         resetToIdle();
         return 0;
     }
-    return stopCurrent(kGracefulExitTimeoutNs, "explicit-terminate");
+    // "Close" from HOME: the title is suspended and cannot answer an exit
+    // request, so asking first only froze HOME for up to 15 s. The dialog already
+    // says unsaved progress is lost, as on the stock menu.
+    return stopCurrent(0, "explicit-terminate");
 }
 
 Result ApplicationSession::areLibraryAppletsLeft(bool* out) {

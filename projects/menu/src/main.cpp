@@ -1,4 +1,5 @@
 
+#include <cerrno>
 #include "core/WiiUMenuApp.hpp"
 #include "core/DebugLog.hpp"
 #include "core/Config.hpp"
@@ -119,10 +120,18 @@ constexpr size_t kHeapLadder[] = {
     288u * 1024u * 1024u,
     256u * 1024u * 1024u,
     kMenuAppletHeapSize,
+    // Peak use is ~50-80 MiB. With a title suspended the applet pool can be
+    // short (Spotify playing in a game): with no heap at all the menu could not
+    // even open its log, and closed itself to a black screen.
+    192u * 1024u * 1024u,
+    160u * 1024u * 1024u,
+    128u * 1024u * 1024u,
+    96u * 1024u * 1024u,
 };
 }
 
 size_t g_switchuHeapSize = 0;
+static size_t g_switchuHeapAvailable = 0;
 // Kernel time to map + clear the heap; paid on every HOME (menu cold start).
 static uint64_t g_switchuHeapInitNs = 0;
 
@@ -133,7 +142,20 @@ extern "C" void __libnx_initheap(void) {
     void* address = nullptr;
     size_t granted = 0;
     const uint64_t startTick = armGetSystemTick();
+    u64 total = 0, used = 0;
+    if (R_SUCCEEDED(svcGetInfo(&total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0)) &&
+        R_SUCCEEDED(svcGetInfo(&used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0)) &&
+        total > used)
+        g_switchuHeapAvailable = static_cast<size_t>(total - used);
+    // What the limit says is free is not all free: a sysmodule in the applet pool
+    // (Switify was) takes memory from it that this limit does not count. Taking
+    // nearly all of it left the system without memory for the menu's own
+    // sessions, and FS dropped them. The menu peaks at ~80 MiB.
+    constexpr size_t kHeadroom = 64u * 1024u * 1024u;
+    const size_t ceiling = g_switchuHeapAvailable > kHeadroom ? g_switchuHeapAvailable - kHeadroom : 0;
     for (size_t requested : kHeapLadder) {
+        if (ceiling != 0 && requested > ceiling && requested > kHeapLadder[std::size(kHeapLadder) - 1])
+            continue;
         if (R_SUCCEEDED(svcSetHeapSize(&address, requested))) {
             granted = requested;
             break;
@@ -170,6 +192,35 @@ extern "C" void userAppExit(void) {
     romfsExit();
 }
 #else
+namespace switchu::menu {
+// Opens and closes a file the menu always has, through FS directly.
+Result probeSdSession() {
+    FsFileSystem* sd = fsdevGetDeviceFileSystem("sdmc");
+    if (!sd)
+        return MAKERESULT(Module_Libnx, LibnxError_NotFound);
+    FsFile file{};
+    const Result rc = fsFsOpenFile(sd, "/config/SwitchU/settings.json", FsOpenMode_Read, &file);
+    if (R_SUCCEEDED(rc))
+        fsFileClose(&file);
+    return rc;
+}
+
+bool sdSessionClosed(Result rc) {
+    return rc == MAKERESULT(Module_Kernel, KernelError_ConnectionClosed);
+}
+
+// A fresh FS session and SD mount, for when FS closed the one we had.
+Result reopenSdSession() {
+    fsdevUnmountAll();
+    fsExit();
+    svcSleepThread(200'000'000ULL);
+    Result rc = fsInitialize();
+    if (R_SUCCEEDED(rc))
+        rc = fsdevMountSdmc();
+    return rc;
+}
+} // namespace switchu::menu
+
 extern "C" void __appInit(void) {
     Result rc;
 
@@ -187,6 +238,7 @@ extern "C" void __appInit(void) {
         diagAbortWithResult(MAKERESULT(Module_Libnx, 502));
     }
     svcOutputDebugString("[SwitchU-menu] appletInitialize OK", 34);
+    DebugLog::liveToDaemon().store(true);
 
     rc = hidInitialize();
     if (R_FAILED(rc)) svcOutputDebugString("[SwitchU-menu] hidInitialize FAIL", 33);
@@ -214,9 +266,32 @@ extern "C" void __appInit(void) {
         rc = fsdevMountSdmc();
     }
 
+    // Returning HOME over a title with Spotify playing, FS closed this session on
+    // the first file opened (2001-0123) and nothing loaded. Try a fresh session.
+    Result probeRc[4] = {};
+    int probeTries = 0;
+    for (; probeTries < 4; ++probeTries) {
+        FsFileSystem* sd = fsdevGetDeviceFileSystem("sdmc");
+        FsFile file{};
+        probeRc[probeTries] = sd
+            ? fsFsOpenFile(sd, "/config/SwitchU/settings.json", FsOpenMode_Read, &file)
+            : MAKERESULT(Module_Libnx, LibnxError_NotFound);
+        if (R_SUCCEEDED(probeRc[probeTries]))
+            fsFileClose(&file);
+        if (probeRc[probeTries] != MAKERESULT(Module_Kernel, KernelError_ConnectionClosed))
+            break;
+        fsdevUnmountAll();
+        fsExit();
+        svcSleepThread(200'000'000ULL);
+        fsInitialize();
+        rc = fsdevMountSdmc();
+    }
+
     switchu::FileLog::open("menu");
     DebugLog::openFileLog();
     DebugLog::log("[menu] __appInit complete (sd mount: 0x%X)", rc);
+    DebugLog::log("[fs] early probe tries=%d rc=0x%X 0x%X 0x%X 0x%X", probeTries + 1,
+                  probeRc[0], probeRc[1], probeRc[2], probeRc[3]);
 
     rc = nsInitialize();
     if (R_FAILED(rc))
@@ -295,6 +370,17 @@ extern "C" void __appInit(void) {
 }
 
 extern "C" void __appExit(void) {
+    // The last lines logged go to the daemon, which writes them to its own log if
+    // the menu closed before it was ready: then this process may have had no log.
+    {
+        const std::string tail = DebugLog::tailForExit();
+        AppletStorage st{};
+        if (!tail.empty() && R_SUCCEEDED(appletCreateStorage(&st, static_cast<s64>(tail.size())))) {
+            if (R_SUCCEEDED(appletStorageWrite(&st, 0, tail.data(), tail.size())))
+                appletPushOutData(&st);
+            appletStorageClose(&st);
+        }
+    }
     DebugLog::closeFileLog();
     switchu::FileLog::close();
 
@@ -359,8 +445,8 @@ int main(int argc, char* argv[]) {
     DebugLog::log("[main] applet config...");
 #else
     DebugLog::log("[menu] main() entry");
-    DebugLog::log("[mem] heap granted=%zuMiB init=%lums",
-                  g_switchuHeapSize >> 20,
+    DebugLog::log("[mem] heap granted=%zuMiB available=%zuMiB init=%lums",
+                  g_switchuHeapSize >> 20, g_switchuHeapAvailable >> 20,
                   static_cast<unsigned long>(g_switchuHeapInitNs / 1000000ULL));
 
     auto startMode = readStartMode();
@@ -373,6 +459,28 @@ int main(int argc, char* argv[]) {
         std::string sdPath = fmt::format("{}/shaders/", SD_ASSETS);
         nxui::Renderer::setShaderBasePath(sdPath);
         DebugLog::log("[menu] shader path: %s", sdPath.c_str());
+    }
+    {
+        // Returning HOME over a title with Spotify playing, FS had closed this
+        // session by now (2001-0123): nothing could be read and the menu closed.
+        // A fresh session, and the log reopened on it.
+        const Result readRc = switchu::menu::probeSdSession();
+        if (switchu::menu::sdSessionClosed(readRc)) {
+            Result reopenRc = 0, retryRc = readRc;
+            for (int i = 0; i < 3 && switchu::menu::sdSessionClosed(retryRc); ++i) {
+                reopenRc = switchu::menu::reopenSdSession();
+                retryRc = switchu::menu::probeSdSession();
+            }
+            // Not the log file again: writing it was what closed the session.
+            DebugLog::log("[fs] session was closed; reopened rc=0x%X probe=0x%X", reopenRc, retryRc);
+        }
+        errno = 0;
+        FILE* fp = std::fopen("sdmc:/switch/SwitchU/shaders/basic_vsh.dksh", "rb");
+        const int shaderErrno = fp ? 0 : errno;
+        if (fp)
+            std::fclose(fp);
+        DebugLog::log("[fs] probe settings rc=0x%X (%u-%04u) shader errno=%d",
+                      readRc, R_MODULE(readRc) + 2000, R_DESCRIPTION(readRc), shaderErrno);
     }
 #endif
 
@@ -415,7 +523,8 @@ int main(int argc, char* argv[]) {
             auto activity = std::make_unique<WiiUMenuApp>();
             activity->setStartupStatus(sysStatus,
                 startMode == switchu::smi::MenuStartMode::AppletReturn,
-                startMode == switchu::smi::MenuStartMode::LockScreen);
+                startMode == switchu::smi::MenuStartMode::LockScreen,
+                startMode == switchu::smi::MenuStartMode::StartupBoot && !fromTutorial);
             activity->setTutorialStartupFade(fromTutorial);
             return activity;
         };
@@ -432,7 +541,8 @@ int main(int argc, char* argv[]) {
             DebugLog::log("[menu] app.run...");
             app.run();
         } else {
-            DebugLog::log("[menu] app.initialize FAILED");
+            DebugLog::log("[menu] app.initialize FAILED at %s",
+                          app.initFailStep() ? app.initFailStep() : "?");
         }
         DebugLog::log("[menu] stopping USB MTP server...");
         switchu::usb::mtpStop();

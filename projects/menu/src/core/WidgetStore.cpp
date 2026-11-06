@@ -87,7 +87,7 @@ bool WidgetStore::load() {
     return true;
 }
 
-bool WidgetStore::save() const {
+bool WidgetStore::save(bool durable) const {
     std::error_code ec;
     std::filesystem::create_directories("sdmc:/config/SwitchU/widgets", ec);
     ec.clear();
@@ -122,7 +122,7 @@ bool WidgetStore::save() const {
         file.flush();
         if (!file.good()) return false;
     }
-    if (!switchu::commitSdCard("widgets temp")) return false;
+    if (durable && !switchu::commitSdCard("widgets temp")) return false;
 
     const bool hadOriginal = std::filesystem::is_regular_file(kPath, ec) && !ec;
     ec.clear();
@@ -142,7 +142,7 @@ bool WidgetStore::save() const {
         fsdevCommitDevice("sdmc");
         return false;
     }
-    if (!switchu::commitSdCard("widgets final")) {
+    if (durable && !switchu::commitSdCard("widgets final")) {
         DebugLog::log("[widgets] final commit failed");
         std::filesystem::remove(kPath, ec);
         if (hadOriginal) {
@@ -154,7 +154,8 @@ bool WidgetStore::save() const {
     }
     if (hadOriginal) {
         std::filesystem::remove(kBackupPath, ec);
-        fsdevCommitDevice("sdmc");
+        if (durable)
+            fsdevCommitDevice("sdmc");
     }
     DebugLog::log("[widgets] saved count=%d", static_cast<int>(m_widgets.size()));
     return true;

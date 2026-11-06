@@ -29,6 +29,15 @@ public:
     void onUiLanguageChange(StringCb cb) { m_uiLanguageCb = std::move(cb); }
     void onClockUse12HourChange(BoolCb cb) { m_clockUse12HourCb = std::move(cb); }
     void onLockScreenChange(BoolCb cb) { m_lockScreenCb = std::move(cb); }
+    void onLockSinglePressChange(BoolCb cb) { m_lockSinglePressCb = std::move(cb); }
+    void onLockCascadeChange(BoolCb cb) { m_lockCascadeCb = std::move(cb); }
+    void onLockMusicChange(BoolCb cb) { m_lockMusicCb = std::move(cb); }
+    void onLockShapesChange(BoolCb cb) { m_lockShapesCb = std::move(cb); }
+    void onScreenOffMusicChange(BoolCb cb) { m_screenOffMusicCb = std::move(cb); }
+    void onGlassEffectsChange(BoolCb cb) { m_glassEffectsCb = std::move(cb); }
+    void onLockPictureChange(StringCb cb) { m_lockPictureCb = std::move(cb); }
+    void onLockPasswordAction(VoidCb cb) { m_lockPasswordCb = std::move(cb); }
+    void onLockPreview(VoidCb cb) { m_lockPreviewCb = std::move(cb); }
     void onWebClockSyncChange(BoolCb cb) { m_webClockSyncCb = std::move(cb); }
     using ExternalToastCb = std::function<void(const std::string& msg, float holdSeconds)>;
     void onExternalToast(ExternalToastCb cb) { m_externalToastCb = std::move(cb); }
@@ -81,6 +90,14 @@ public:
     void setLockScreenState(bool enabled) {
         m_lockScreenEnabled = enabled;
     }
+    void setLockPasswordState(bool set) { m_lockPasswordSet = set; }
+    void setLockSinglePressState(bool enabled) { m_lockSinglePress = enabled; }
+    void setLockCascadeState(bool enabled) { m_lockCascade = enabled; }
+    void setLockMusicState(bool enabled) { m_lockMusic = enabled; }
+    void setLockShapesState(bool enabled) { m_lockShapes = enabled; }
+    void setScreenOffMusicState(bool enabled) { m_screenOffMusic = enabled; }
+    void setGlassEffectsState(bool enabled) { m_glassEffects = enabled; }
+    void setLockPictureState(const std::string& path) { m_lockPicturePath = path; }
     void setWebClockSyncState(bool enabled) {
         m_webClockSyncEnabled = enabled;
     }
@@ -148,6 +165,15 @@ private:
     StringCb m_uiLanguageCb;
     BoolCb m_clockUse12HourCb;
     BoolCb m_lockScreenCb;
+    BoolCb m_lockSinglePressCb;
+    BoolCb m_lockCascadeCb;
+    BoolCb m_lockMusicCb;
+    BoolCb m_lockShapesCb;
+    BoolCb m_screenOffMusicCb;
+    BoolCb m_glassEffectsCb;
+    StringCb m_lockPictureCb;
+    VoidCb m_lockPasswordCb;
+    VoidCb m_lockPreviewCb;
     BoolCb m_webClockSyncCb;
     ExternalToastCb m_externalToastCb;
     ClockSyncBootRetryCb m_clockSyncBootRetryCb;
@@ -177,6 +203,14 @@ private:
     std::string m_uiLanguageOverride = "auto";
     bool m_clockUse12Hour = false;
     bool m_lockScreenEnabled = true;
+    bool m_lockPasswordSet = false;
+    bool m_lockSinglePress = false;
+    bool m_lockCascade = false;
+    bool m_lockMusic = false;
+    bool m_lockShapes = false;
+    bool m_screenOffMusic = false;
+    bool m_glassEffects = true;
+    std::string m_lockPicturePath;
     bool m_webClockSyncEnabled = false;
     bool m_clockSyncToastFailureOnly = false;
     bool m_accessibilityEnabled = true;

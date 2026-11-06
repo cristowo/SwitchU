@@ -1510,7 +1510,7 @@ void WiiUMenuApp::closeActiveOverlays(bool closeFolders) {
 }
 
 nxui::Widget* WiiUMenuApp::focusRoot() {
-    if (m_lockScreenActive || m_lockGameBackdrop || m_gameFrameRevealActive) return nullptr;
+    if (m_lockScreenActive || m_lockGameBackdrop) return nullptr;
     if (m_leaveCaptureDeferred) return nullptr;
     if (m_leaveCapturePending) return nullptr;
     if (leaveSplashActive()) return nullptr;
@@ -1791,9 +1791,11 @@ void WiiUMenuApp::showGameContextMenu(GlossyIcon* icon) {
         m_gameSizes[titleId] = requested;
         if (switchu::widgets::isLandscapeWideGameTile(requested)) {
             m_gameArtwork.erase(titleId);
+            markThumbnailsStale(titleId);
             ensureGameArtwork(titleId);
         } else {
             m_gameArtwork.erase(titleId);
+            markThumbnailsStale(titleId);
         }
         normalizeWidgetPlacements();
         m_layoutDirty = true;
@@ -1805,11 +1807,31 @@ void WiiUMenuApp::showGameContextMenu(GlossyIcon* icon) {
         // Always re-decode after resize: 2x3 ↔ icon sizes must not keep the
         // previous art kind (poster stuck on 1x1/2x2, or icon stuck on 2x3).
         if (m_grid) {
+            markThumbnailsStale(titleId);
             m_iconStreamer.reloadTitle(titleId, m_grid->currentPage(),
                                        m_grid->iconsPerPage(),
                                        app().gpu(), app().renderer(),
                                        m_grid->allIcons());
         }
+    });
+    m_gameOptions->onRename([this, titleId, title]() {
+        auto& localI18n = nxui::I18n::instance();
+        const auto custom = m_customNames.find(titleId);
+        requestTextEntry(localI18n.tr("game.rename_title", "Rename"),
+            localI18n.tr("game.rename_guide", "Leave empty to use the game's own name"),
+            custom != m_customNames.end() ? custom->second : title, 64, false,
+            [this, titleId](const std::string& value) {
+                if (value.empty())
+                    m_customNames.erase(titleId);
+                else
+                    m_customNames[titleId] = value;
+                saveCustomNames();
+                if (m_gameOptions)
+                    m_gameOptions->hide();
+                // Reload the list so the new name shows everywhere.
+                m_refreshQueued = true;
+                m_deferredRefreshFrames = std::max(m_deferredRefreshFrames, 2);
+            });
     });
     m_gameOptions->onCloseSoftware([this]() { m_launcher.terminateApplication(); });
     m_gameOptions->onDeleteSoftware([this, titleId, title]() {
@@ -2246,6 +2268,12 @@ void WiiUMenuApp::handleSystemAction(SysAction a) {
             // Physical HOME while already browsing the menu.
             DebugLog::log("[pump] HomeDismiss -> close folder/overlays");
             m_launcher.setAppHasForeground(false);
+            // On the lock screen HOME is one more button towards unlocking, and
+            // must not close whatever is open behind it.
+            if (m_lockScreenActive) {
+                registerLockPress(kLockPressHome);
+                break;
+            }
             // Like the stock HOME menu: with nothing left to dismiss, HOME goes
             // back to the suspended game instead of doing nothing.
             const std::uint64_t suspendedId = m_launcher.suspendedTitleId();
@@ -2280,7 +2308,7 @@ void WiiUMenuApp::handleSystemAction(SysAction a) {
                     returnFocusId = static_cast<GlossyIcon*>(focused)->titleId();
             }
             refreshRecentActivityDuration();
-            if (!m_widgetStore.save())
+            if (!m_widgetStore.save(false))
                 DebugLog::log("[widgets] recent activity duration could not be saved");
             // Keep an already-open folder — closing+refocus was reopening it and
             // stacking FolderBackdrop dims on every HOME-from-title return.

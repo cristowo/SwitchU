@@ -49,6 +49,9 @@ public:
         bool fixedOrientation = false;
         float orientationDegrees = 0.f;
         float cornerRoundness = 0.f;
+        float twinkle = 0.f;        // 0 = steady, 1 = fades out fully between flashes
+        float twinkleSpeed = 0.25f; // flashes per second, varied per shape
+        float glow = 0.f;           // halo strength, 0 = none
         float imageOpacity = 0.f;
         bool imageCover = true;
     };
@@ -72,6 +75,9 @@ public:
     /// for compositing over blurred letterbox regions.
     void renderLetterboxOverlay(nxui::Renderer& ren, float opacityMul = 1.f);
 
+    /// Only the shapes, for drawing them over something else (the lock screen).
+    void renderShapes(nxui::Renderer& ren, float opacityMul);
+
     void regenerate(int count = 50) override;
 
 protected:
@@ -90,6 +96,7 @@ private:
         float wobble;
         float rotation;
         float rotSpeed;
+        float twinkleRate;
         nxui::Color color;
         float glassAlpha;
     };

@@ -38,6 +38,20 @@ struct AppConfig {
     bool  clockUse12Hour = false;
     // Show the lock screen when the console wakes from sleep.
     bool  lockScreenEnabled = true;
+    // A once instead of the same button three times.
+    bool  lockSinglePress = false;
+    // Lock screen frosts only the theme's background; icons fall in on unlock.
+    bool  lockCascade = false;
+    // Music keeps playing on the lock screen, with a card and controls.
+    bool  lockMusic = false;
+    // The theme's moving shapes, sharp over the lock screen's frost.
+    bool  lockShapes = false;
+    // Sleep requests only turn the backlight off while music plays.
+    bool  screenOffMusic = false;
+    // Off: frosted panels without the shader glass or blur.
+    bool  glassEffects = true;
+    // Lock screen picture; empty means what is on screen, frosted.
+    std::string lockPicturePath;
     // Alternate to Nintendo auto clock correction: HTTPS Date sync on boot.
     bool  webClockSyncEnabled = false;
     bool  accessibilityEnabled = true;

@@ -9,6 +9,7 @@ namespace {
 constexpr int kBackgroundRenderReserveVertices = 13312;
 constexpr int kWorstCaseShapeVertices = 36;
 constexpr int kGlassShapeLayers = 3;
+constexpr int kGlowLayers = 3;
 // Theme manifests are untrusted configuration. A 14x8 grid combined with
 // quad symmetry previously expanded to 448 shapes per frame. Preserve the
 // composition while bounding fill/geometry cost on the handheld GPU.
@@ -77,10 +78,14 @@ int symmetryMultiplier(WaraWaraBackground::Symmetry symmetry) {
     }
 }
 
+int shapeLayers(const WaraWaraBackground::Config& config) {
+    return kGlassShapeLayers + (config.glow > 0.f ? kGlowLayers : 0);
+}
+
 int maxSafeBaseShapeCount(const WaraWaraBackground::Config& config) {
     const int multiplier = std::max(1, symmetryMultiplier(config.symmetry));
     const int maxBudget = std::max(1, nxui::GpuDevice::MAX_VERTICES - kBackgroundRenderReserveVertices);
-    const int perShapeBudget = std::max(1, kWorstCaseShapeVertices * kGlassShapeLayers * multiplier);
+    const int perShapeBudget = std::max(1, kWorstCaseShapeVertices * shapeLayers(config) * multiplier);
     return std::max(1, maxBudget / perShapeBudget);
 }
 
@@ -105,7 +110,7 @@ std::uint64_t estimateVertexCount(const WaraWaraBackground::Config& config, int 
     return (std::uint64_t)std::max(0, baseShapeCount)
         * (std::uint64_t)std::max(1, symmetryMultiplier(config.symmetry))
         * (std::uint64_t)kWorstCaseShapeVertices
-        * (std::uint64_t)kGlassShapeLayers;
+        * (std::uint64_t)shapeLayers(config);
 }
 
 } // namespace
@@ -137,6 +142,9 @@ void WaraWaraBackground::setConfig(const Config& config) {
     m_config.wobble = std::max(0.f, m_config.wobble);
     m_config.opacity = std::clamp(m_config.opacity, 0.f, 1.f);
     m_config.cornerRoundness = std::clamp(m_config.cornerRoundness, 0.f, 1.f);
+    m_config.twinkle = std::clamp(m_config.twinkle, 0.f, 1.f);
+    m_config.twinkleSpeed = std::max(0.f, m_config.twinkleSpeed);
+    m_config.glow = std::clamp(m_config.glow, 0.f, 1.f);
     m_config.imageOpacity = std::clamp(m_config.imageOpacity, 0.f, 1.f);
     regenerate(0);
 }
@@ -232,6 +240,7 @@ void WaraWaraBackground::regenerate(int count) {
         s.size = randomRange(m_config.sizeMin, m_config.sizeMax);
         s.speed = randomRange(m_config.speedMin, m_config.speedMax);
         s.phase = random01() * 6.28f;
+        s.twinkleRate = randomRange(m_config.twinkleSpeed * 0.6f, m_config.twinkleSpeed * 1.4f);
         s.wobble = m_config.layout == Layout::Grid ? 0.f : randomRange(m_config.wobble * 0.4f, m_config.wobble);
         if (m_config.fixedOrientation) {
             s.rotation = degreesToRadians(m_config.orientationDegrees);
@@ -326,6 +335,14 @@ void WaraWaraBackground::renderLetterboxOverlay(nxui::Renderer& ren, float opaci
     m_opacity = prev;
 }
 
+void WaraWaraBackground::renderShapes(nxui::Renderer& ren, float opacityMul) {
+    const float prev = m_opacity;
+    m_opacity = prev * std::clamp(opacityMul, 0.f, 1.f);
+    for (const auto& s : m_shapes)
+        drawShapeWithSymmetry(ren, s);
+    m_opacity = prev;
+}
+
 void WaraWaraBackground::drawShapeWithSymmetry(nxui::Renderer& ren, const Shape& s) const {
     drawGlassShape(ren, s);
 
@@ -357,19 +374,35 @@ void WaraWaraBackground::drawShapeWithSymmetry(nxui::Renderer& ren, const Shape&
 }
 
 void WaraWaraBackground::drawGlassShape(nxui::Renderer& ren, const Shape& s) const {
-    float a = s.color.a * m_opacity;
+    // Cubing the wave keeps a shape dim for most of its cycle, with a short flash.
+    float pulse = 1.f;
+    if (m_config.twinkle > 0.f) {
+        const float wave = 0.5f + 0.5f * std::sin(m_time * 6.28318f * s.twinkleRate + s.phase);
+        pulse = 1.f - m_config.twinkle * (1.f - wave * wave * wave);
+    }
+
+    float a = s.color.a * m_opacity * pulse;
     if (a < 0.003f) return;
+
+    const bool dense = useDenseRenderMode(m_config, (int)m_shapes.size());
+    if (m_config.glow > 0.f && !dense) {
+        // Stacked discs add up towards the center, which reads as a soft falloff.
+        const nxui::Color halo = m_shapeColor.withAlpha(m_config.glow * a * 0.12f);
+        ren.drawCircle(s.pos, s.size * 5.f, halo, 12);
+        ren.drawCircle(s.pos, s.size * 3.2f, halo, 12);
+        ren.drawCircle(s.pos, s.size * 2.f, halo, 12);
+    }
 
     nxui::Color body = m_shapeColor.withAlpha(a);
     drawRoundedShape(ren, s, body);
 
-    if (useDenseRenderMode(m_config, (int)m_shapes.size()))
+    if (dense)
         return;
 
     Shape highlight = s;
     highlight.pos.y -= s.size * 0.08f;
     highlight.size   = s.size * 0.85f;
-    const float effectAlpha = m_config.opacity * m_opacity;
+    const float effectAlpha = m_config.opacity * m_opacity * pulse;
     nxui::Color hi = nxui::Color(1.f, 1.f, 1.f, kShapeHighlightAlpha * effectAlpha);
     drawRoundedShape(ren, highlight, hi);
 

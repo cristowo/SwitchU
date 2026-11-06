@@ -5,6 +5,9 @@
 #include "WiiUMenuApp.hpp"
 #include "widgets/GlossyIcon.hpp"
 #include "DebugLog.hpp"
+#ifdef SWITCHU_MENU
+#include "smi_commands.hpp"
+#endif
 
 #include <algorithm>
 #include <nxui/core/I18n.hpp>
@@ -100,6 +103,9 @@ void WiiUMenuApp::requestSwitifyPlayback() {
                  {i18n.tr("switify.start", "Start"), [this]() {
                      m_switify.launchService();
                      m_musicLinkPollIn = 0.f;
+                     m_switifyAutoPlay = true;
+                     m_switifyAutoPlayElapsed = 0.f;
+                     m_switifyAutoPlayRetry = 0.f;
                  }, true}}, 1, {});
             focusManager().setFocus(m_dialog.get());
             return;
@@ -313,6 +319,7 @@ void WiiUMenuApp::applyNowPlayingWidget(GlossyIcon& icon) const {
     icon.setWidgetHeader(m_nowPlayingView.header);
     icon.setWidgetText(m_nowPlayingView.primary, m_nowPlayingView.secondary);
     icon.setWidgetCover(m_nowPlayingCover.get());
+    icon.setWidgetBars(m_musicBars.data(), static_cast<int>(m_musicBars.size()));
 }
 
 void WiiUMenuApp::refreshNowPlayingWidgets(const NowPlayingView& view) {
@@ -365,6 +372,148 @@ void WiiUMenuApp::refreshNowPlayingWidgets(const NowPlayingView& view) {
     forEachWidget([this](GlossyIcon& icon) { applyNowPlayingWidget(icon); });
 }
 
+void WiiUMenuApp::resumeSpotifyAfterSleep() {
+    if (!m_spotifyPausedForSleep) return;
+    m_spotifyPausedForSleep = false;
+    DebugLog::log("[power] resuming spotify");
+    m_spotifyReconnecting = 45.f;
+    // Nursing the old stream back kept failing in new ways. Switify waits for the
+    // connection and starts the same song afresh, where it was.
+    m_switify.send(sw::IpcCommand::ReloadCurrent);
+}
+
+void WiiUMenuApp::updateLockMusic() {
+    bool hasTrack = false;
+    m_lockMusicPlaying = false;
+    if (lockMusicOn()) {
+        // Only with a track: starting the service asks through a dialog the lock
+        // would cover.
+        if (spotifySource()) {
+            const auto now = m_switify.nowPlaying();
+            hasTrack = now.controllable() && now.hasTrack;
+            m_lockMusicPlaying = hasTrack && now.playing;
+        } else if (lockAllowsLocalMusic()) {
+            const int index = m_audio.currentIndex();
+            hasTrack = index >= 0 && index < m_audio.trackCount();
+            m_lockMusicPlaying = hasTrack && m_audio.isPlaying();
+        }
+    }
+    m_lockMusicShown = hasTrack && (m_lockMusicPlaying || m_lockMusicKeep ||
+                                    (m_spotifyReconnecting > 0.f && spotifySource()));
+    // Bars and shapes move; otherwise only the clock does.
+    app().setIdlePresentStride(m_lockMusicShown || (m_config.lockShapes && !m_lockGameBackdrop) ? 0 : 6);
+}
+
+void WiiUMenuApp::updateMusicBars(float dt) {
+    bool onScreen = m_lockScreenActive ? m_lockMusicShown : false;
+    if (!m_lockScreenActive && m_grid && m_appLayoutMode == AppLayoutMode::Grid) {
+        const auto& icons = m_grid->allIcons();
+        const int perPage = std::max(1, m_grid->iconsPerPage());
+        const int start = m_grid->currentPage() * perPage;
+        const int end = std::min(start + perPage, static_cast<int>(icons.size()));
+        for (int i = start; i < end && !onScreen; ++i)
+            onScreen = icons[static_cast<std::size_t>(i)]->entryKind() == GridEntryKind::Widget
+                && icons[static_cast<std::size_t>(i)]->widgetType()
+                    == switchu::widgets::WidgetType::NowPlaying;
+    }
+    if (m_screenOff)
+        onScreen = false;
+
+    m_spotifyReconnecting = std::max(0.f, m_spotifyReconnecting - dt);
+    const bool local = !spotifySource();
+    const bool playing = onScreen && (local ? m_audio.isPlaying() : m_switify.nowPlaying().playing);
+    m_audio.setSpectrumEnabled(onScreen && local);
+    // Spotify's audio is in Switify's process, so it measures it there. The
+    // console's output recorder is not an option: it froze the console.
+    m_switify.setLevelsWanted(playing && !local);
+    if (!onScreen) {
+        m_musicBars.fill(0.f);
+        return;
+    }
+
+    static_assert(sw::Client::kLevelBands == SpectrumAnalyzer::kBands);
+    float levels[SpectrumAnalyzer::kBands]{};
+    if (local)
+        m_audio.spectrum(levels);
+    else
+        m_switify.levels(levels);
+    // Sound means it is back, unless Switify says it still waits: then the sound
+    // is what was loaded before the sleep.
+    if (!m_switify.nowPlaying().reloading &&
+        std::any_of(std::begin(levels), std::end(levels), [](float v) { return v > 0.01f; }))
+        m_spotifyReconnecting = 0.f;
+    // Up quickly, down slowly.
+    for (int i = 0; i < SpectrumAnalyzer::kBands; ++i) {
+        float& v = m_musicBars[static_cast<std::size_t>(i)];
+        const float target = playing ? levels[i] : 0.f;
+        v = target > v ? v + (target - v) * 0.6f : std::max(target, v - dt * 1.4f);
+    }
+}
+
+void WiiUMenuApp::renderLockMusic(nxui::Renderer& ren, float y, float a) {
+    constexpr float kW = 1280.f;
+    constexpr float kMargin = 44.f;
+    constexpr float kRowTop = 622.f;
+    constexpr float kRowGap = 30.f;
+    const nxui::Color ink(1.f, 1.f, 1.f, a);
+    const nxui::Color soft(1.f, 1.f, 1.f, 0.72f * a);
+
+    // The bars, between the date and the dots; a password's prompt and dots sit
+    // lower, so there they stay above it (look from HomeNX).
+    constexpr float kBarsW = 620.f;
+    const float kBarsBase = usingLockPassword() && m_lockTask != LockTask::Preview ? 392.f : 490.f;
+    constexpr int kBands = SpectrumAnalyzer::kBands;
+    const float step = kBarsW / static_cast<float>(kBands);
+    const float barW = step * 0.6f;
+    // (The official Switify has no levels: no bars rather than flat ones.)
+    const bool hasBars = !spotifySource() || m_switify.levelsAvailable();
+    for (int i = 0; i < kBands && hasBars; ++i) {
+        const float v = m_musicBars[static_cast<std::size_t>(i)];
+        const float h = 3.f + 60.f * v;
+        const float x = (kW - kBarsW) * 0.5f + step * static_cast<float>(i) + step * 0.2f;
+        ren.drawRoundedRect({x, kBarsBase + y - h, barW, h},
+                            nxui::Color(1.f, 1.f, 1.f, (0.35f + 0.5f * v) * a), barW * 0.5f);
+        ren.drawRoundedRect({x, kBarsBase + y + 4.f, barW, h * 0.3f},
+                            nxui::Color(1.f, 1.f, 1.f, 0.12f * a), barW * 0.5f);
+    }
+
+    if (m_spotifyReconnecting > 0.f && spotifySource()) {
+        const std::string waiting = nxui::I18n::instance().tr(
+            "lockscreen.music_reconnecting", "Reconnecting...");
+        ren.drawText(waiting, {(kW - m_fontSmall.measure(waiting).x) * 0.5f, kBarsBase + y - 50.f},
+                     &m_fontSmall, soft);
+    }
+
+    // The song, bottom right: name and band, then the cover.
+    constexpr float kCover = 56.f;
+    const nxui::Rect cover{kW - kMargin - kCover, kRowTop + y, kCover, kCover};
+    if (m_nowPlayingCover && m_nowPlayingCover->valid())
+        ren.drawTextureRounded(m_nowPlayingCover.get(), cover, 8.f, ink);
+    else
+        ren.drawRoundedRect(cover, nxui::Color(1.f, 1.f, 1.f, 0.10f * a), 8.f);
+    constexpr float kTextW = 300.f;
+    const float textRight = cover.x - 12.f;
+    const auto songLine = [&](const std::string& text, float top, const nxui::Color& color) {
+        const float width = m_fontSmall.measure(text).x;
+        const float scale = width > kTextW ? std::max(0.6f, kTextW / width) : 1.f;
+        ren.drawText(text, {textRight - width * scale, top}, &m_fontSmall, color, scale);
+    };
+    // Long names are shrunk first and only then clipped.
+    ren.pushClipRect({textRight - kTextW, kRowTop + y, kTextW, kCover});
+    songLine(m_nowPlayingView.primary, kRowTop + y, ink);
+    songLine(m_nowPlayingView.secondary, kRowTop + y + kRowGap, soft);
+    ren.popClipRect();
+
+    // The controls, bottom left.
+    if (m_lockTask == LockTask::Unlock) {
+        auto& i18n = nxui::I18n::instance();
+        ren.drawText(i18n.tr("lockscreen.music_skip", "L/R: Previous/Next"),
+                     {kMargin, kRowTop + y}, &m_fontSmall, soft);
+        ren.drawText(i18n.tr("lockscreen.music_play", "ZR: Play/Pause"),
+                     {kMargin, kRowTop + y + kRowGap}, &m_fontSmall, soft);
+    }
+}
+
 void WiiUMenuApp::pollMusicLink(float dt) {
     m_switify.start();
     m_switify.setDemand(m_quickSettings && m_quickSettings->isActive()
@@ -388,8 +537,44 @@ void WiiUMenuApp::pollMusicLink(float dt) {
     }
     m_spotifyWasPlaying = now.playing;
 
+    if (m_switifyAutoPlay) {
+        constexpr float kGiveUpSeconds = 30.f;
+        constexpr float kRetrySeconds = 2.f; // Ready can come before the player can start
+        m_switifyAutoPlayElapsed += kMusicLinkPeriod;
+        m_switifyAutoPlayRetry -= kMusicLinkPeriod;
+        if (now.playing || m_switifyAutoPlayElapsed >= kGiveUpSeconds) {
+            DebugLog::log("[music] spotify autoplay done playing=%d", now.playing ? 1 : 0);
+            m_switifyAutoPlay = false;
+        } else if (now.controllable() && m_switifyAutoPlayRetry <= 0.f) {
+            m_switifyAutoPlayRetry = kRetrySeconds;
+            pauseLocalForSpotify();
+            m_switify.send(sw::IpcCommand::Play); // does nothing if already playing
+        }
+    }
+
     const auto& widgets = m_widgetStore.all();
-    if (std::none_of(widgets.begin(), widgets.end(), [](const auto& widget) {
+#ifdef SWITCHU_MENU
+    // Staying awake for the music is the opposite of what Battery Saver is for.
+    const bool screenOffWanted = m_config.screenOffMusic && !m_config.batterySaver
+        && (now.playing || m_audio.isPlaying());
+    const int linkState = (screenOffWanted ? 1 : 0) | (now.playing ? 2 : 0);
+    if (linkState != m_screenOffWantedSent) {
+        m_screenOffWantedSent = linkState;
+        switchu::menu::smi_cmd::setScreenOffMusic(screenOffWanted, now.playing);
+    }
+    // Dark and silent is the worst of both: a short grace for a skip, then real sleep.
+    constexpr float kDarkSilenceSeconds = 20.f;
+    m_screenOffSilence = m_screenOff && !screenOffWanted
+        ? m_screenOffSilence + kMusicLinkPeriod : 0.f;
+    if (m_screenOffSilence >= kDarkSilenceSeconds) {
+        m_screenOffSilence = 0.f;
+        DebugLog::log("[power] dark and silent: sleeping");
+        m_launcher.enterSleep();
+    }
+#endif
+
+    if (!(m_lockScreenActive && lockMusicOn()) &&
+        std::none_of(widgets.begin(), widgets.end(), [](const auto& widget) {
             return widget.type == switchu::widgets::WidgetType::NowPlaying;
         }))
         return;

@@ -808,8 +808,10 @@ bool SteamGridDbManager::clearArtwork(std::uint64_t titleId, ArtworkKind kind) {
         removeFile(logoPath(titleId) + ".384x192.rgba-cache");
         removeFile(logoPath(titleId) + ".640x180.rgba-cache"); // legacy
     }
-    if (clearIcon)
+    if (clearIcon) {
         removeFile(iconPath(titleId));
+        removeFile(iconPath(titleId) + ".fit320x480.rgba-cache");
+    }
     if (clearPoster) {
         removeFile(posterPath(titleId));
         removeFile(posterPath(titleId) + ".fit320x480.rgba-cache");

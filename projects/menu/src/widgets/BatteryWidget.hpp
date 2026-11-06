@@ -10,6 +10,8 @@ public:
     void setFont(nxui::Font* f) { m_font = f; }
     void setTextColor(const nxui::Color& c) { m_textColor = c; }
     void setBatteryStatus(uint32_t percentage, bool charging);
+    // Chip temperature in Celsius; negative hides it.
+    void setTemperature(int celsius);
 
 protected:
     void onContentUpdate(float dt) override;
@@ -21,6 +23,7 @@ private:
 
     nxui::Font* m_font = nullptr;
     float m_level   = -1.f;
+    int   m_temperature = -1;
     bool  m_charging = false;
     float m_timer    = 0.f;
     float m_chargeAnim = 0.f;

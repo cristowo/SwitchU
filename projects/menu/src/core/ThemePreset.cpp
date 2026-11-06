@@ -306,6 +306,9 @@ void readThemeBackgroundFromObject(const nlohmann::json& j, ThemeBackgroundConfi
     readJsonAliases(j, {"rotationSpeed", "rotation_speed", "spin", "spinSpeed", "spin_speed"}, background.rotationSpeed);
     readJsonAliases(j, {"fixedOrientation", "fixed_orientation", "lockOrientation", "lock_orientation"}, background.fixedOrientation);
     readJsonAliases(j, {"roundness", "cornerRoundness", "corner_roundness", "shapeRoundness", "shape_roundness"}, background.cornerRoundness);
+    readJsonAliases(j, {"twinkle", "blink"}, background.twinkle);
+    readJsonAliases(j, {"twinkleSpeed", "twinkle_speed", "blinkSpeed", "blink_speed"}, background.twinkleSpeed);
+    readJsonAliases(j, {"glow", "halo"}, background.glow);
 
     float orientationDegrees = background.orientationDegrees;
     if (readJsonAliases(j, {"orientation", "orientationDegrees", "orientation_degrees", "shapeOrientation", "shape_orientation", "angle"}, orientationDegrees)) {
@@ -362,6 +365,9 @@ void readThemeBackgroundFromObject(const nlohmann::json& j, ThemeBackgroundConfi
     background.imageOpacity = std::clamp(background.imageOpacity, 0.f, 1.f);
     background.opacity = std::clamp(background.opacity, 0.f, 1.f);
     background.cornerRoundness = std::clamp(background.cornerRoundness, 0.f, 1.f);
+    background.twinkle = std::clamp(background.twinkle, 0.f, 1.f);
+    background.twinkleSpeed = std::max(0.f, background.twinkleSpeed);
+    background.glow = std::clamp(background.glow, 0.f, 1.f);
 }
 
 void readThemeBackground(const nlohmann::json& j, ThemeBackgroundConfig& background) {

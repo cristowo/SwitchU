@@ -102,6 +102,10 @@ public:
     }
     // Non-owning; drawn in the RecentPlaytime layout's square slot.
     void setWidgetCover(nxui::Texture* cover) { m_widgetGameIcon = cover; }
+    void setWidgetBars(const float* levels, int count) {
+        m_widgetBars = levels;
+        m_widgetBarCount = count;
+    }
     void setWidgetGameAssets(std::uint64_t titleId,
                              const std::string& heroPath,
                              const std::string& logoPath,
@@ -126,6 +130,14 @@ public:
                                 nxui::Texture*,
                                 nxui::Texture*) {
         m_batteryConsoleIcon = console;
+    }
+    // Non-owning. Shown until the full-size art arrives; null when unavailable.
+    void setThumbnails(const nxui::Texture* iconAtlas, const nxui::Rect& iconSource,
+                       const nxui::Texture* wideAtlas, const nxui::Rect& wideSource) {
+        m_iconThumb = iconAtlas;
+        m_iconThumbSource = iconSource;
+        m_wideThumb = wideAtlas;
+        m_wideThumbSource = wideSource;
     }
     void setWideGameTextures(nxui::Texture* hero, nxui::Texture* logo) {
         m_wideGameHero = hero;
@@ -171,6 +183,10 @@ private:
     nxui::Texture*    m_gameCardTex = nullptr;
     nxui::Texture*    m_wideGameHero = nullptr;
     nxui::Texture*    m_wideGameLogo = nullptr;
+    const nxui::Texture* m_iconThumb = nullptr;
+    const nxui::Texture* m_wideThumb = nullptr;
+    nxui::Rect        m_iconThumbSource{};
+    nxui::Rect        m_wideThumbSource{};
     uint64_t    m_titleId = 0;
     bool        m_focused = false;
     bool        m_focusable = true;
@@ -232,6 +248,8 @@ private:
     nxui::Texture* m_widgetHero = nullptr;
     nxui::Texture* m_widgetLogo = nullptr;
     nxui::Texture* m_widgetGameIcon = nullptr;
+    const float* m_widgetBars = nullptr; // owned by the menu; updated every frame
+    int m_widgetBarCount = 0;
     std::uint64_t m_widgetGameTitleId = 0;
     SidebarAnimation m_widgetAnimation;
 };

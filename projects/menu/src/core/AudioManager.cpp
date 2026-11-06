@@ -1,6 +1,8 @@
 #include "AudioManager.hpp"
 #include <SDL2/SDL.h>
+#include "SpectrumAnalyzer.hpp"
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -206,6 +208,27 @@ void extractApicCover(const char* payload, int frameSize, std::vector<uint8_t>& 
 
 } // namespace
 
+namespace {
+
+std::atomic<bool> g_spectrumEnabled{false};
+SpectrumAnalyzer g_spectrum;
+
+// SDL's audio thread.
+void onMixed(void*, Uint8* stream, int len) {
+    if (g_spectrumEnabled.load(std::memory_order_relaxed))
+        g_spectrum.analyze(reinterpret_cast<const std::int16_t*>(stream), len / 4, 44100);
+}
+
+} // namespace
+
+void AudioManager::setSpectrumEnabled(bool enabled) {
+    g_spectrumEnabled.store(enabled, std::memory_order_relaxed);
+}
+
+void AudioManager::spectrum(float* out) const {
+    g_spectrum.read(out);
+}
+
 AudioManager::~AudioManager() { shutdown(); }
 
 bool AudioManager::initialize() {
@@ -218,6 +241,7 @@ bool AudioManager::initialize() {
         return false;
     }
     Mix_AllocateChannels(8);
+    Mix_SetPostMix(onMixed, nullptr);
     m_initialized = true;
     setVolume(m_volume);
     return true;
@@ -226,6 +250,7 @@ bool AudioManager::initialize() {
 void AudioManager::shutdown() {
     if (!m_initialized) return;
 
+    Mix_SetPostMix(nullptr, nullptr);
     Mix_HookMusicFinished(nullptr);
     s_instance.store(nullptr);
     Mix_HaltMusic();
@@ -455,6 +480,7 @@ bool AudioManager::loadTrack(const std::string& path, const std::string& albumFo
     std::lock_guard<std::mutex> lk(m_trackMutex);
     m_tracks.push_back(music);
     m_trackInfos.push_back(std::move(info));
+    ++m_playlistRevision;
     rebuildShuffleOrder(true);
     return true;
 }
@@ -471,6 +497,7 @@ void AudioManager::clearTracks() {
     for (auto* m : m_tracks) Mix_FreeMusic(m);
     m_tracks.clear();
     m_trackInfos.clear();
+    ++m_playlistRevision;
     m_folderCovers.clear();
     m_shuffleOrder.clear();
     m_current = 0;
@@ -532,6 +559,7 @@ void AudioManager::applyPlaylistOrder(const std::vector<std::string>& orderedKey
 
     m_tracks = std::move(newTracks);
     m_trackInfos = std::move(newInfos);
+    ++m_playlistRevision;
     m_current = 0;
     for (size_t i = 0; i < m_trackInfos.size(); ++i) {
         if (m_trackInfos[i].path == currentPath) {
@@ -590,17 +618,27 @@ std::string AudioManager::currentDisplayTitle() const {
 
 std::atomic<AudioManager*> AudioManager::s_instance{nullptr};
 
+// SDL_mixer's audio thread, inside the mixer lock: only a flag. Starting the next
+// track here took m_trackMutex the opposite way round from play() and pause(),
+// which hold it and then need the mixer lock: the two threads could wait on each
+// other forever, freezing HOME. update() does the work on the UI thread.
 void AudioManager::onTrackFinished() {
     AudioManager* inst = s_instance.load();
     if (!inst || inst->m_suppressFinishedHook)
         return;
-    if (inst->m_repeat == MusicRepeatMode::One) {
-        std::lock_guard<std::mutex> lk(inst->m_trackMutex);
-        inst->m_positionSeconds = 0.f;
-        inst->playCurrentInternal(true);
+    inst->m_trackFinishedPending.store(true);
+}
+
+void AudioManager::handleTrackFinished() {
+    if (!m_trackFinishedPending.exchange(false))
+        return;
+    if (m_repeat == MusicRepeatMode::One) {
+        std::lock_guard<std::mutex> lk(m_trackMutex);
+        m_positionSeconds = 0.f;
+        playCurrentInternal(true);
         return;
     }
-    inst->nextTrack();
+    nextTrack();
 }
 
 void AudioManager::rebuildShuffleOrder(bool keepCurrent) {
@@ -663,6 +701,7 @@ void AudioManager::playCurrentInternal(bool fromStart) {
         return;
     }
     s_instance.store(this);
+    m_resumeExact = false;
     Mix_HookMusicFinished(onTrackFinished);
     m_suppressFinishedHook = true;
     Mix_PlayMusic(m_tracks[static_cast<size_t>(m_current)], 1);
@@ -687,6 +726,14 @@ void AudioManager::play() {
     // running; Mix_PlayMusic again caused an audible skip.
     if (m_playing.load() && Mix_PlayingMusic())
         return;
+    if (m_resumeExact && Mix_PlayingMusic() && Mix_PausedMusic()) {
+        m_resumeExact = false;
+        Mix_ResumeMusic();
+        m_playing.store(true);
+        m_paused = false;
+        applyMusicVolume();
+        return;
+    }
     playCurrentInternal(m_positionSeconds <= 0.05f);
 }
 
@@ -694,10 +741,11 @@ void AudioManager::pause() {
     std::lock_guard<std::mutex> lk(m_trackMutex);
     if (!m_playing.load() && m_paused)
         return;
-    m_suppressFinishedHook = true;
-    Mix_HookMusicFinished(nullptr);
-    Mix_HaltMusic();
-    m_suppressFinishedHook = false;
+    // Held, not halted: resuming used to restart the track and seek to a position
+    // estimated from frame times. A seek that lands past what the decoder can
+    // reach ends the stream, and the finished hook then skips to the next song.
+    Mix_PauseMusic();
+    m_resumeExact = true;
     m_playing.store(false);
     m_paused = true;
 }
@@ -769,6 +817,7 @@ bool AudioManager::moveTrack(int from, int to) {
     m_trackInfos.erase(m_trackInfos.begin() + from);
     m_tracks.insert(m_tracks.begin() + to, music);
     m_trackInfos.insert(m_trackInfos.begin() + to, std::move(info));
+    ++m_playlistRevision;
     if (m_current == from)
         m_current = to;
     else if (from < m_current && to >= m_current)
@@ -807,6 +856,7 @@ void AudioManager::setRepeatMode(MusicRepeatMode mode) {
 }
 
 void AudioManager::update(float dt) {
+    handleTrackFinished();
     // Apply resume seeks off the splash/GPU burst, after Mix_PlayMusic has
     // actually started (see updateDeferredSeek warm-up).
     updateDeferredSeek();
@@ -836,6 +886,7 @@ float AudioManager::durationSeconds() const {
 }
 
 void AudioManager::setPositionSeconds(float seconds) {
+    m_resumeExact = false;
     m_positionSeconds = std::max(0.f, seconds);
 }
 
@@ -843,6 +894,7 @@ void AudioManager::seekTo(float seconds) {
     std::lock_guard<std::mutex> lk(m_trackMutex);
     const float target = sanitizeSeekSecondsUnlocked(seconds);
     m_positionSeconds = target;
+    m_resumeExact = false;
     if (m_playing.load()) {
         if (target > 0.25f)
             Mix_SetMusicPosition(static_cast<double>(m_positionSeconds));

@@ -14,6 +14,7 @@
 #include "widgets/BatteryWidget.hpp"
 #include "widgets/TitlePillWidget.hpp"
 #include "core/AudioManager.hpp"
+#include "core/SpectrumAnalyzer.hpp"
 #include "core/AccessibilityManager.hpp"
 #include "widgets/LaunchAnimation.hpp"
 #include "widgets/OverlayDialog.hpp"
@@ -40,6 +41,9 @@
 #include "core/Config.hpp"
 #include "core/FolderStore.hpp"
 #include "core/SwitifyClient.hpp"
+#include "core/LockPressCounter.hpp"
+#include "core/LockPasswordEntry.hpp"
+#include "core/ThumbnailAtlas.hpp"
 #include "core/FolderPeekComposite.hpp"
 #include "core/WidgetStore.hpp"
 #include "core/ThemePreset.hpp"
@@ -92,7 +96,7 @@ public:
 
 #ifdef SWITCHU_MENU
     void setStartupStatus(const switchu::smi::SystemStatus& status, bool fastReturn = false,
-                          bool lockScreen = false);
+                          bool lockScreen = false, bool consoleBoot = false);
 #endif
 
     bool onCreate() override;
@@ -203,6 +207,12 @@ private:
         bool operator==(const NowPlayingView&) const = default;
     };
     bool spotifySource() const { return m_config.musicSource == 1; }
+    // HOME's own songs start by themselves only when Spotify is not the music:
+    // never two sources at once. (Spotify started from the overlay during a game
+    // used to have HOME open with its songs decoding underneath.)
+    bool localMusicWanted() const {
+        return m_config.musicEnabled && !spotifySource() && !m_switify.nowPlaying().playing;
+    }
     void setMusicSource(bool spotify);
     void toggleActiveMusic();
     void stepActiveMusic(bool next);
@@ -210,6 +220,22 @@ private:
     void pauseLocalForSpotify();
     void requestSwitifyPlayback();
     void pollMusicLink(float dt);
+    // HOME's songs stay off over a suspended title; Spotify is not HOME's.
+    bool lockMusicOn() const { return m_config.lockMusic || m_config.screenOffMusic; }
+    bool lockAllowsLocalMusic() const { return lockMusicOn() && !m_lockGameBackdrop; }
+    void updateLockMusic();
+    void resumeSpotifyAfterSleep();
+    // Measures the music only while bars are on screen (lock or widget).
+    void updateMusicBars(float dt);
+    void renderLockMusic(nxui::Renderer& ren, float y, float a);
+    void enterScreenOff();
+    void leaveScreenOff();
+    // Thumbnail atlases (WiiUMenuAppThumbs.cpp).
+    void pollThumbnailAtlases(float dt);
+    void applyThumbnailsToIcon(GlossyIcon& icon) const;
+    void syncThumbnailsToIcons(std::uint64_t onlyTitleId);
+    void markThumbnailsStale(std::uint64_t titleId);
+    void releaseThumbnailAtlases(const char* reason);
     NowPlayingView currentNowPlayingView() const;
     void applyNowPlayingWidget(GlossyIcon& icon) const;
     void refreshNowPlayingWidgets(const NowPlayingView& view);
@@ -251,6 +277,7 @@ private:
     void scheduleLeaveCapture(std::function<void()> afterCapture,
                               std::uint64_t previewSuspendedTitleId = 0);
     bool hasActiveLeaveCaptureOverlay() const;
+    bool hasActiveMenuOverlay() const;
     void pollDeferredLeaveCapture();
     /// Visual-only suspended outline for leave-frame capture (no focus move).
     void setSuspendedIconVisuals(std::uint64_t titleId);
@@ -447,20 +474,32 @@ private:
     void applyFrameTapLightHeadroom(bool preferHigherTarget);
     // Temporary soak inventory — gated by sdmc:/config/SwitchU/mem_inventory.
     void tickMemInventory(float dt);
+    // Slow-frame log — gated by sdmc:/config/SwitchU/frame_log (checked once).
+    void installFrameLog();
     void logMemInventory(const char* tag);
     void releaseLeaveSplashGpu(const char* reason);
     // Wake lock screen ("press the same button three times"). Blocks all
     // input while shown; resumeOnUnlock returns straight to the suspended title.
     void showLockScreen(bool resumeOnUnlock);
+    // Enabled, and not on the TV unless a password is set (docking would get around it).
+    bool lockScreenApplies() const;
+    enum class LockTask { Unlock, MakePassword, RemovePassword, Preview };
+    void beginLockTask(LockTask task);
+    bool usingLockPassword() const;
+    std::string lockPromptText() const;
+    void updateLockPassword();
+    void setLockPasswordFlag(bool set);
+    // Names given in the game's options (title id -> name), over the real ones.
+    void loadCustomNames();
+    void saveCustomNames() const;
     void updateLockScreen(float dt);
     void unlockLockScreen();
+    void registerLockPress(std::uint64_t input);
     void renderLockScreen(nxui::Renderer& ren);
     void refreshLockClock();
     // Last frame of the suspended title (AM capture): lock backdrop and the
     // first frame of the game -> HOME transition, so neither starts with a jump.
     bool loadGameFrame(nxui::Renderer& ren);
-    void updateGameFrameReveal(float dt);
-    void renderGameFrameReveal(nxui::Renderer& ren);
     void closeQuickSettings();
     void createThemeShop();
     void createGameOptions();
@@ -746,14 +785,38 @@ private:
     // Sleep requested on HOME: present the lock frame once, then stop.
     bool m_sleepAfterPresent = false;
     bool m_startFromGame = false;
-    bool m_gameFrameRevealActive = false;
-    float m_gameFrameReveal = 0.f;
+    bool m_consoleBoot = false;
+    bool m_lockPasswordSet = false;
+    LockTask m_lockTask = LockTask::Unlock;
+    LockPasswordEntry m_lockPassword;
+    float m_lockClockShake = 0.f;
+    nxui::Texture m_lockPicture;
     nxui::Texture m_gameFrameTex;
+    std::unordered_map<std::uint64_t, std::string> m_customNames;
     float m_lockFade = 0.f;
-    float m_lockPressTimer = 0.f;
     float m_lockClockTimer = 0.f;
-    int  m_lockPressCount = 0;
-    std::uint64_t m_lockPressButton = 0;
+    float m_lockIdleTimer = 0.f;
+    bool m_lockMusicShown = false;
+    bool m_lockMusicPlaying = false;
+    bool m_lockMusicKeep = false; // paused from the lock: its controls must stay
+    std::array<float, SpectrumAnalyzer::kBands> m_musicBars{};
+    // Backlight off, console awake, music playing (daemon: enterScreenOff).
+    bool m_screenOff = false;
+    float m_screenOffSilence = 0.f;
+    int m_screenOffWantedSent = -1;
+    bool m_spotifyPausedForSleep = false;
+    // After a wake, until sound is heard: the wait is Wi-Fi returning, and with no
+    // sign of it the song looks dead.
+    float m_spotifyReconnecting = 0.f;
+    // Switify starts paused: asked to start, keep asking for Play until it plays.
+    bool m_switifyAutoPlay = false;
+    float m_switifyAutoPlayElapsed = 0.f;
+    float m_switifyAutoPlayRetry = 0.f;
+    bool m_lockAnnouncePending = false;
+    LockPressCounter m_lockPresses;
+    // Ids for the inputs that are not nxui::Button bits.
+    static constexpr std::uint64_t kLockPressHome = 1ull << 62;
+    static constexpr std::uint64_t kLockPressTouch = 1ull << 63;
     std::string m_lockTimeStr;
     std::string m_lockDateStr;
     bool m_editMode          = false;
@@ -824,6 +887,7 @@ private:
     float m_musicLinkPollIn = 0.f;
     bool m_spotifyWasPlaying = false;
     bool m_spotifyBrowseRoot = true;
+    std::int64_t m_quickSettingsPlaylistRevision = -1;
     float m_spotifyPendingVolume = -1.f;
     std::chrono::steady_clock::time_point m_spotifyPendingVolumeAt{};
     struct RecentWidgetAssetDecodeState {
@@ -855,6 +919,16 @@ private:
     std::shared_ptr<GameArtworkDecodeState> m_gameArtworkReady;
     std::future<void> m_gameArtworkFuture;
     GameArtworkTextures m_gameArtworkUploadTextures;
+    bool m_gameArtworkKeepNeighbours = true;
+    // 64 px squares (256 titles, 4 MiB) and 2:1 wide cards (64 titles, 2 MiB).
+    ThumbnailAtlas m_iconThumbs{"sdmc:/config/SwitchU/cache/icon_thumbs.bin", {64, 64, 16, 16}};
+    ThumbnailAtlas m_wideThumbs{"sdmc:/config/SwitchU/cache/wide_thumbs.bin", {128, 64, 8, 8}};
+    struct ThumbFillJob;
+    std::shared_ptr<ThumbFillJob> m_thumbFillJob;
+    std::unordered_set<std::uint64_t> m_thumbFillSkipped;
+    std::size_t m_thumbFillCursor = 0;
+    float m_thumbIdleSeconds = 0.f;
+    float m_thumbWideCheckIn = 0.f;
     int m_gameArtworkUploadStage = 0;
     struct RetainedImagePin {
         std::string assetRef;
@@ -869,6 +943,10 @@ private:
     int m_consoleBatteryPercent = 0;
     bool m_consoleBatteryCharging = false;
     bool m_consoleBatteryKnown = false;
+    void pollChipTemperature(float dt);
+    std::future<void> m_chipTemperatureFuture;
+    std::atomic<int> m_chipTemperature{-1};
+    float m_chipTemperaturePollIn = 3.f;
     std::vector<AppEntry> m_allApps;
     std::uint32_t m_openFolderId = 0;
     std::uint32_t m_requestedFolderId = 0;

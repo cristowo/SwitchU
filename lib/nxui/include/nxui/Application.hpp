@@ -2,6 +2,7 @@
 #include <nxui/core/GpuDevice.hpp>
 #include <nxui/core/Renderer.hpp>
 #include <nxui/core/Input.hpp>
+#include <functional>
 #include <memory>
 
 namespace nxui {
@@ -17,6 +18,17 @@ class Activity;
 ///   app.setActivity(std::make_unique<MyActivity>());
 ///   if (app.initialize()) app.run();
 ///   app.shutdown();
+/// Where one presented frame spent its time, in milliseconds.
+struct FrameTiming {
+    float inputMs = 0.f;
+    float updateMs = 0.f;
+    float acquireMs = 0.f; // beginFrame: includes waiting for a free swapchain image
+    float renderMs = 0.f;
+    float presentMs = 0.f;
+    float afterMs = 0.f;
+    float totalMs = 0.f;
+};
+
 class Application {
 public:
     Application() = default;
@@ -30,6 +42,8 @@ public:
 
     /// Initialise GPU, Renderer, Input, then call activity->onCreate().
     bool initialize();
+    /// What initialize() could not do, or nullptr.
+    const char* initFailStep() const { return m_initFailStep; }
 
     /// Enter the main loop (blocks until requestExit() is called).
     void run();
@@ -58,6 +72,11 @@ public:
     bool sleeping() const    { return m_sleeping; }
     // Present the next frames at full rate even without input (idle throttle off).
     void requestFullRate()   { m_fullRateRequested = true; }
+    // While idle, present only every Nth frame (static screens); 0 = normal rules.
+    void setIdlePresentStride(unsigned stride) { m_idlePresentStride = stride; }
+    void setFrameObserver(std::function<void(const FrameTiming&)> observer) {
+        m_frameObserver = std::move(observer);
+    }
 
 private:
     void dispatchInput();
@@ -70,9 +89,12 @@ private:
     std::unique_ptr<Activity> m_activity;
     std::unique_ptr<Activity> m_pendingActivity;
     bool m_running = true;
+    const char* m_initFailStep = nullptr;
     bool m_renderEnabled = true;
     bool m_sleeping = false;
     bool m_fullRateRequested = false;
+    unsigned m_idlePresentStride = 0;
+    std::function<void(const FrameTiming&)> m_frameObserver;
     uint64_t m_navHeldMask = 0;
     int m_navHeldFrames = 0;
     int m_navRepeatCountdown = 0;

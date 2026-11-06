@@ -106,15 +106,21 @@ inline bool has_archived_log_name(const char* file_name, const char* base_name, 
 }
 
 inline void prune_archived_logs(const char* log_dir, const char* base_name, const char* extension, size_t keep_count) {
-    std::vector<std::string> matches;
+    // Oldest first by modification time: the daemon starts before the clock is
+    // set, so its archive names all read 1970 and sorting them by name dropped
+    // whichever one happened to sort first, often the newest.
+    std::vector<std::pair<std::filesystem::file_time_type, std::string>> matches;
     std::error_code ec;
     for (const auto& entry : std::filesystem::directory_iterator(log_dir, ec)) {
         if (ec)
             break;
 
         const std::string file_name = entry.path().filename().string();
-        if (has_archived_log_name(file_name.c_str(), base_name, extension))
-            matches.emplace_back(file_name);
+        if (has_archived_log_name(file_name.c_str(), base_name, extension)) {
+            std::error_code time_ec;
+            const auto time = entry.last_write_time(time_ec);
+            matches.emplace_back(time_ec ? std::filesystem::file_time_type{} : time, file_name);
+        }
     }
 
     if (matches.size() <= keep_count)
@@ -125,7 +131,7 @@ inline void prune_archived_logs(const char* log_dir, const char* base_name, cons
     char path[256];
     const size_t delete_count = matches.size() - keep_count;
     for (size_t i = 0; i < delete_count; ++i) {
-        std::snprintf(path, sizeof(path), "%s/%s", log_dir, matches[i].c_str());
+        std::snprintf(path, sizeof(path), "%s/%s", log_dir, matches[i].second.c_str());
         ec.clear();
         std::filesystem::remove(path, ec);
     }

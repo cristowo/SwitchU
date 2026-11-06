@@ -21,6 +21,8 @@ enum class MenuMessage : uint32_t {
     AppViewFlagsUpdate    =  9,
     BatteryStatusChanged  = 10,
     OperationFailed       = 11,
+    ScreenOff             = 12,
+    ScreenOn              = 13,
 };
 
 enum class SystemMessage : uint32_t {
@@ -49,9 +51,13 @@ enum class SystemMessage : uint32_t {
     SetManualDateTime     = 33,
     SetInternetTimeSync   = 34,
     SetLockScreen         = 35,
+    SetScreenOffMusic     = 36,
 
     MenuReady             = 40,
     MenuClosing           = 41,
+    // A log line while the menu starts: the daemon's log keeps it even when the
+    // menu cannot write its own (payload: the text, not terminated).
+    MenuLog               = 42,
 };
 
 enum class MenuStartMode : uint32_t {
@@ -97,9 +103,17 @@ static_assert(sizeof(InternetTimeSyncArgs) == 8);
 
 struct LockScreenArgs {
     uint8_t enabled;
-    uint8_t _pad[7];
+    uint8_t when_docked; // a password locks on the TV too
+    uint8_t _pad[6];
 };
 static_assert(sizeof(LockScreenArgs) == 8);
+
+struct ScreenOffMusicArgs {
+    uint8_t wanted; // the option is on and music is audible right now
+    uint8_t spotify_playing; // a sleep has to leave time for its pause
+    uint8_t _pad[6];
+};
+static_assert(sizeof(ScreenOffMusicArgs) == 8);
 
 struct OperationOutcome {
     uint64_t request_id;

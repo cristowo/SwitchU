@@ -89,6 +89,9 @@ public:
     // Cap neighbor page radius while Frame Tap viewer light path is active.
     // Pass <0 to clear the cap (restore normal kPageCacheRadius behavior).
     void setPageCacheRadiusCap(int radius);
+    // Grid only: pages next to the current one still have icons to load.
+    bool needsNeighbourLoads(int currentPage, int iconsPerPage,
+                             const nxui::GpuDevice& gpu) const;
     int pageCacheRadiusCap() const { return m_pageCacheRadiusCap; }
 
     // Destroy GPU textures on free pool slots. onPageChanged normally keeps
@@ -240,5 +243,7 @@ private:
         return clampRadius(kPageCacheRadius);
     }
     int m_pageCacheRadiusCap = -1;
+    bool canWarmGridNeighbours(int iconsPerPage, const nxui::GpuDevice& gpu) const;
+    static constexpr std::uint64_t kNeighbourWarmMargin = 12u * 1024u * 1024u;
     static constexpr std::uint64_t kGpuImageReserve = 4u * 1024u * 1024u;
 };

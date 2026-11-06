@@ -23,7 +23,13 @@ Renderer::Renderer(GpuDevice& gpu) : m_gpu(gpu) {
     m_clipStack.reserve(8);
     resetLiquidGlassSettings();
 }
-Renderer::~Renderer() {}
+Renderer::~Renderer() {
+    // Pixels still waiting to be freed: once the GPU is done, before the device goes.
+    if (!m_deferredImages.empty()) {
+        m_gpu.waitIdle();
+        releaseDeferredImages(true);
+    }
+}
 
 void Renderer::resetLiquidGlassSettings() {
     m_liquidGlassSettings = LiquidGlassSettings{};
@@ -191,9 +197,39 @@ void Renderer::releaseTextureSlot(int slot) {
 }
 
 void Renderer::reclaimReleasedTextureSlotsAfterIdle() {
+    // Textures no longer wait for the GPU when they go, so the idle this
+    // promises has to happen here before anything is handed back early.
+    if (!m_deferredDescSlots.empty() || !m_deferredImages.empty())
+        m_gpu.waitIdle();
     for (const auto& released : m_deferredDescSlots)
         m_freeDescSlots.push_back(released.slot);
     m_deferredDescSlots.clear();
+    releaseDeferredImages(true);
+}
+
+// Freeing a texture used to wait for the GPU to finish everything (and a font
+// trimming its text cache freed dozens at once), so HOME hitched every so often.
+// The pixels now wait out the frames in flight, like the descriptor slots. The
+// budget is given back at once: an eviction followed by a load in the same frame
+// must not fail on memory that is only waiting for the GPU. (From HomeNX.)
+void Renderer::retireImageMemory(dk::UniqueMemBlock&& block, uint32_t size) {
+    m_gpu.forgetImageMemory(size);
+    DeferredImage d;
+    d.block = std::move(block);
+    d.freeFrame = m_frameSerial + 4;
+    m_deferredImages.push_back(std::move(d));
+}
+
+void Renderer::releaseDeferredImages(bool all) {
+    for (std::size_t i = 0; i < m_deferredImages.size();) {
+        if (all || m_deferredImages[i].freeFrame <= m_frameSerial) {
+            if (i + 1 != m_deferredImages.size())
+                m_deferredImages[i] = std::move(m_deferredImages.back());
+            m_deferredImages.pop_back(); // the MemBlock goes here
+        } else {
+            ++i;
+        }
+    }
 }
 
 void Renderer::updateTexture(int slot, const dk::ImageView& view) {
@@ -254,6 +290,7 @@ void Renderer::pushFsUniforms(const FsUniforms& fs) {
 
 void Renderer::beginFrame() {
     ++m_frameSerial;
+    releaseDeferredImages(false);
     for (std::size_t i = 0; i < m_deferredDescSlots.size();) {
         if (m_deferredDescSlots[i].reusableFrame <= m_frameSerial) {
             m_freeDescSlots.push_back(m_deferredDescSlots[i].slot);

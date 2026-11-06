@@ -306,7 +306,9 @@
       "page_translate": "Translation",
       "page_teleport": "Téléportation",
       "ui_wireframe": "Wireframe UI",
-      "ui_wireframe_desc": "Affiche le contour de toutes les Box pour le debug layout."
+      "ui_wireframe_desc": "Affiche le contour de toutes les Box pour le debug layout.",
+      "glass": "Effets de verre",
+      "glass_desc": "Désactivez-les pour des panneaux dépolis simples et une fluidité plus stable."
     },
     "internet": {
       "wifi_ssid": "Réseau WiFi",
@@ -403,7 +405,24 @@
       "wake_power": "Réveil au changement d'alimentation",
       "wake_power_desc": "Réveille la console quand l'adaptateur secteur est connecté ou déconnecté.",
       "lock_screen": "Écran de verrouillage",
-      "lock_screen_desc": "Affiche l'écran de verrouillage au réveil de la console."
+      "lock_screen_desc": "Affiche l'écran de verrouillage au réveil de la console.",
+      "lock_single": "Déverrouiller d'une pression",
+      "lock_single_desc": "Appuyez une fois sur A au lieu de trois fois sur le même bouton.",
+      "lock_password": "Mot de passe de verrouillage",
+      "lock_password_desc": "4 à 8 pressions sur la croix. Oublié ? Supprimez config/SwitchU/lock_password de la carte SD.",
+      "lock_picture": "Image de verrouillage",
+      "lock_picture_desc": "Une capture de l'Album, ou l'écran actuel, flouté.",
+      "lock_picture_none": "HOME flouté",
+      "lock_preview": "Aperçu du verrouillage",
+      "lock_preview_desc": "Voir l'écran de verrouillage tel qu'il est réglé.",
+      "lock_cascade": "Icônes en cascade au déverrouillage",
+      "lock_cascade_desc": "L'écran de verrouillage n'affiche que le fond du thème, et les icônes tombent à leur place au déverrouillage.",
+      "lock_music": "Musique sur l'écran verrouillé",
+      "lock_music_desc": "Pendant la lecture sur l'écran verrouillé : barres, titre, pochette et commandes sur L, R et ZR. L'écran reste allumé pendant la lecture.",
+      "screen_off_music": "Musique écran éteint",
+      "screen_off_music_desc": "Dans HOME, en mode portable : pendant la lecture, le bouton POWER éteint seulement l'écran. La console reste active et consomme plus qu'en veille.",
+      "lock_shapes": "Thème animé sur l'écran verrouillé",
+      "lock_shapes_desc": "Affiche les formes animées du thème, comme ses lucioles, sur l'écran verrouillé. Consomme un peu plus de batterie."
     },
     "theme": {
       "preset": "Preset",
@@ -526,7 +545,10 @@
       "logo_desc": "Ouvre la galerie des logos pour choisir l'image à utiliser.",
       "icon": "Icône de remplacement",
       "icon_desc": "Ouvre la galerie des icônes pour remplacer celle du jeu."
-    }
+    },
+    "rename_title": "Renommer",
+    "rename_guide": "Laissez vide pour le nom d'origine",
+    "rename_desc": "Donnez un autre nom à ce logiciel dans le menu HOME."
   },
   "folder": {
     "create": "Créer un dossier",
@@ -608,7 +630,8 @@
     "previous": "Titre précédent",
     "switch_to_spotify": "Passer à Spotify",
     "switch_to_songs": "Passer aux morceaux",
-    "play_pause": "Lecture/Pause"
+    "play_pause": "Lecture/Pause",
+    "calendar": "Calendrier"
   },
   "controller_test": {
     "title": "Test des manettes",
@@ -682,7 +705,10 @@
     "search": "Rechercher",
     "manage": "Gérer",
     "stop": "Arrêter",
-    "pair": "Associer"
+    "pair": "Associer",
+    "create": "Créer",
+    "remove": "Retirer",
+    "show": "Afficher"
   },
   "themeshop": {
     "source": {
@@ -871,7 +897,21 @@
     "wednesday": "Mercredi",
     "thursday": "Jeudi",
     "friday": "Vendredi",
-    "saturday": "Samedi"
+    "saturday": "Samedi",
+    "press_a": "Appuyez sur A pour déverrouiller",
+    "preview": "Appuyez sur un bouton pour fermer l'aperçu.",
+    "pw_enter": "Saisissez votre mot de passe avec la croix",
+    "pw_make": "Appuyez 4 à 8 fois sur la croix, puis sur A",
+    "pw_again": "Saisissez-le encore une fois pour vérifier",
+    "pw_wrong": "Mot de passe incorrect",
+    "pw_mismatch": "Ça ne correspond pas. Recommencez.",
+    "pw_too_short": "Au moins 4 pressions, puis A",
+    "pw_hint": "B Effacer",
+    "pw_hint_make": "A Terminé    B Effacer (encore pour quitter)",
+    "pw_hint_stop": "B Effacer (encore pour quitter)",
+    "music_skip": "L/R : Précédent/Suivant",
+    "music_play": "ZR : Lecture/Pause",
+    "music_reconnecting": "Reconnexion..."
   },
   "switify": {
     "not_installed": "Switify n'est pas installé",
@@ -895,5 +935,10 @@
     "search_title": "Rechercher sur Spotify",
     "loading": "Chargement...",
     "load_failed": "Impossible de charger cette page"
+  },
+  "calendar": {
+    "months": "Janvier,Février,Mars,Avril,Mai,Juin,Juillet,Août,Septembre,Octobre,Novembre,Décembre",
+    "weekdays": "L,M,M,J,V,S,D",
+    "first_weekday": "1"
   }
 }

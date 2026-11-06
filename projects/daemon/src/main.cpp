@@ -8,6 +8,7 @@
 #include <switchu/ns_ext.hpp>
 #include <switchu/file_log.hpp>
 #include <switchu/sd_commit.hpp>
+#include <switchu/operation_mode.hpp>
 #include "app_manager.hpp"
 #include "ecs.hpp"
 #include "library_applet_runner.hpp"
@@ -42,7 +43,9 @@ static bool g_hidReady = false;
 
 extern "C" {
     u32 __nx_applet_type = AppletType_SystemApplet;
-    u32 __nx_fs_num_sessions = 3;
+    // Every process's FS sessions share Atmosphere's fs.mitm pool; with a title
+    // and Spotify running it ran dry and FS closed the menu's session on start.
+    u32 __nx_fs_num_sessions = 2;
 
     size_t __nx_heap_size = 0x800000;
     TimeServiceType __nx_time_service_type = TimeServiceType_System;
@@ -282,6 +285,7 @@ static const char* g_pendingHomeMenuSource = nullptr;
 static uint64_t g_pendingHomeMenuStartedAt = 0;
 // Mirrors the menu's "lock screen on wake" setting (sent after MenuReady).
 static bool g_lockScreenEnabled = true;
+static bool g_lockScreenWhenDocked = false;
 static uint8_t g_lastBatteryPercent = 0xFF;
 static uint64_t g_lastBatteryPollTick = 0;
 static constexpr uint64_t kBatteryPollNs = 30'000'000'000ULL;
@@ -1010,6 +1014,38 @@ static void requestPowerStateChange(const char* source, bool reboot) {
 // does need a handoff before the console stops responding. Left on its own it
 // keeps submitting frames, playing music and running its per-frame work for the
 // whole sleep, which is what flattened the battery in sleep mode.
+static bool g_screenOffMusicWanted = false;
+static bool g_spotifyPlaying = false;
+static bool g_screenOff = false;
+
+// Real sleep stops every process, music included. So with the option on and
+// music audible a sleep request only turns the backlight off: the console stays
+// awake, which costs far more battery. Handheld over HOME only: a title would
+// keep running blind, and a TV has its own off switch.
+static bool enterScreenOff(const char* source) {
+    if (g_screenOff)
+        return g_screenOffMusicWanted;
+    if (!g_screenOffMusicWanted || !g_lblReady || !daemon::menu_la::isActive()
+        || g_foregroundAppletActive || switchu::consoleIsDocked())
+        return false;
+    const Result rc = lblSwitchBacklightOff(0);
+    switchu::FileLog::log("[power] screen off source=%s rc=0x%X", source, rc);
+    if (R_FAILED(rc))
+        return false;
+    g_screenOff = true;
+    pushNotification(smi::MenuMessage::ScreenOff);
+    return true;
+}
+
+static void leaveScreenOff(const char* source) {
+    if (!g_screenOff)
+        return;
+    g_screenOff = false;
+    pushNotification(smi::MenuMessage::ScreenOn);
+    const Result rc = lblSwitchBacklightOn(0);
+    switchu::FileLog::log("[power] screen on source=%s rc=0x%X", source, rc);
+}
+
 static void startSleepSequence(const char* source) {
     switchu::FileLog::logCommit("[power] sleep requested source=%s menuActive=%d",
                                 source, daemon::menu_la::isActive() ? 1 : 0);
@@ -1019,12 +1055,16 @@ static void startSleepSequence(const char* source) {
     // The handoff is cooperative: give the menu a few frames to present its
     // lock screen, stop presenting and pause its audio instead of relying on
     // the sleep landing a frame later. Skip the wait when no menu is up.
+    // (A lock picture may have to load first. Switify's pause is a 0.5 s fade, and
+    // one frozen halfway would finish after the wake and pause it again.)
     if (daemon::menu_la::isActive())
-        svcSleepThread(100'000'000ULL);
+        svcSleepThread(g_spotifyPlaying ? 750'000'000ULL : 150'000'000ULL);
     appletStartSleepSequence(true);
 }
 
 static void startPowerSequence(const char* source, smi::SystemMessage action) {
+    if (action == smi::SystemMessage::EnterSleep && enterScreenOff(source))
+        return;
     cancelViewPolling(source);
     takeForegroundFromRunningApp(source);
 
@@ -1071,6 +1111,15 @@ static void openMenuFromHome(const char* source) {
     cancelViewPolling("home");
 
     if (g_pendingHomeMenuLaunch) {
+        // HOME right as a title launches: AE's foreground message can come before
+        // the request, and no other follows. Waiting forever is a black screen
+        // that only a restart ends, so a later press goes ahead without it.
+        constexpr uint64_t kHandoffPatienceNs = 2'000'000'000ULL;
+        if (armTicksToNs(homeStartedAt - g_pendingHomeMenuStartedAt) >= kHandoffPatienceNs) {
+            switchu::FileLog::log("[%s] HOME: foreground handoff never confirmed; opening menu", source);
+            launchPendingHomeMenu();
+            return;
+        }
         switchu::FileLog::log("[%s] HOME ignored: foreground handoff already pending", source);
         return;
     }
@@ -1187,6 +1236,10 @@ static void handleGeneralChannel() {
     switch (hdr.msg) {
         case 2:
         switchu::FileLog::log("[sams] -> Home");
+        if (g_screenOff) {
+            leaveScreenOff("sams-home");
+            break;
+        }
         openMenuFromHome("sams");
         break;
         case 3:
@@ -1211,6 +1264,13 @@ static void handleAppletMessages() {
         return;
 
     switchu::FileLog::log("[ae] msg=%u", msg);
+    // Dark with music: whatever needs eyes (HOME, the power menu, docking) brings
+    // the screen back. HOME only does that: the menu is already up.
+    if (g_screenOff && (msg == 20 || msg == 21 || msg == 23 || msg == 24 || msg == 30)) {
+        leaveScreenOff("msg");
+        if (msg == 20)
+            return;
+    }
     switch (msg) {
         case 1:
         switchu::FileLog::log("[ae] -> ChangeIntoForeground");
@@ -1232,6 +1292,13 @@ static void handleAppletMessages() {
         case 29:
         case 32:
         switchu::FileLog::log("[ae] -> Sleep (msg=%u)", msg);
+        if (msg == 22 && g_screenOff) {
+            leaveScreenOff("power-button");
+            break;
+        }
+        // (32 is not a request a dark screen should refuse.)
+        if (msg != 32 && enterScreenOff("applet-sleep"))
+            break;
         // The application keeps its IApplicationAccessor across system sleep,
         // but must reacquire the foreground after wake. Keep our session state
         // in sync so the Wakeup path is allowed to call app::resume().
@@ -1243,9 +1310,23 @@ static void handleAppletMessages() {
 
         case 26:
         switchu::FileLog::log("[ae] -> Wakeup");
+        // Went into real sleep from a dark screen (the music stopped).
+        leaveScreenOff("wake");
         g_batteryRefreshPending.store(true);
-        if (g_lockScreenEnabled && daemon::app::isRunning() &&
-            !daemon::menu_la::hasHolder() && !g_foregroundAppletActive) {
+        // A foreground applet (Album, user creator...) cannot be covered by the
+        // menu and closing it could lose what the user was doing. It simply
+        // comes back as it was, with no title resumed or menu opened over it.
+        if (g_foregroundAppletActive) {
+            appletRequestToGetForeground();
+            switchu::FileLog::log("[ae] wake kept foreground applet");
+            break;
+        }
+        // No lock on the TV: nothing can press a controller by accident there.
+        // A password is the exception, or docking would get around it.
+        const bool lockOnWake = g_lockScreenEnabled
+            && (g_lockScreenWhenDocked || !switchu::consoleIsDocked());
+        if (lockOnWake && daemon::app::isRunning() &&
+            !daemon::menu_la::hasHolder()) {
             // Stock behaviour: wake lands on the lock screen, not the game.
             // The system applet owns the foreground after wake, so the menu
             // can open right away; the menu resumes the title once unlocked.
@@ -1276,8 +1357,8 @@ static void handleAppletMessages() {
         if (daemon::menu_la::isActive()) {
             pushNotification(smi::MenuMessage::WakeUp);
         } else if (!daemon::app::isRunning()) {
-            daemon::menu_la::launch(g_lockScreenEnabled ? smi::MenuStartMode::LockScreen
-                                                        : smi::MenuStartMode::MainMenu,
+            daemon::menu_la::launch(lockOnWake ? smi::MenuStartMode::LockScreen
+                                               : smi::MenuStartMode::MainMenu,
                                     buildSystemStatus());
         }
         break;
@@ -1515,6 +1596,13 @@ static void handleMenuCommand() {
 
     auto msg = reader.systemMessage();
     const uint64_t requestId = reader.requestId();
+    if (msg == smi::SystemMessage::MenuLog) {
+        const uint8_t* text = reader.rawAt(reader.position());
+        if (text)
+            switchu::FileLog::log("[menu-live] %.*s", static_cast<int>(reader.remaining()),
+                                  reinterpret_cast<const char*>(text));
+        return;
+    }
     switchu::FileLog::log("[smi] command=%u", (u32)msg);
 
     Result result = 0;
@@ -1690,7 +1778,15 @@ static void handleMenuCommand() {
     case smi::SystemMessage::SetLockScreen: {
         auto args = reader.pop<smi::LockScreenArgs>();
         g_lockScreenEnabled = args.enabled != 0;
+        g_lockScreenWhenDocked = args.when_docked != 0;
         switchu::FileLog::log("[smi] lock screen enabled=%d", g_lockScreenEnabled ? 1 : 0);
+        return;
+    }
+
+    case smi::SystemMessage::SetScreenOffMusic: {
+        auto args = reader.pop<smi::ScreenOffMusicArgs>();
+        g_screenOffMusicWanted = args.wanted != 0;
+        g_spotifyPlaying = args.spotify_playing != 0;
         return;
     }
 
@@ -2027,8 +2123,17 @@ static void mainLoop() {
             haveGfxFail ? failRc : 0);
         // A normal exit (launch/resume) must not pay an SD commit; only keep
         // the forced commit for the early-exit diagnostics below.
-        if (!sawReady)
+        if (!sawReady) {
+            const std::string& tail = daemon::menu_la::lastExitTail();
+            for (size_t at = 0; at < tail.size();) {
+                size_t end = tail.find('\n', at);
+                if (end == std::string::npos)
+                    end = tail.size();
+                switchu::FileLog::log("[menu-tail] %.*s", static_cast<int>(end - at), tail.data() + at);
+                at = end + 1;
+            }
             switchu::FileLog::logCommit("[main] menu exited before ready");
+        }
         if (runtimeNs < 1'000'000'000ULL)
             ++g_menuFastExitCount;
         else

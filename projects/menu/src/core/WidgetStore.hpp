@@ -16,6 +16,7 @@ enum class WidgetType : std::uint8_t {
     ImagePin,
     Batteries,
     NowPlaying,
+    Calendar,
 };
 
 struct WidgetSize {
@@ -70,6 +71,10 @@ const char* fallbackName(WidgetType type);
 bool parseType(const std::string& value, WidgetType& type);
 std::vector<WidgetSize> supportedSizes(WidgetType type, AppLayoutMode layout);
 WidgetSize validatedSize(WidgetType type, WidgetSize requested, AppLayoutMode layout);
+// month is 1-12.
+int calendarDaysInMonth(int year, int month);
+// Empty cells before the 1st, from any known day of the month. Weekdays are 0-6, Sunday first.
+int calendarLeadingBlanks(int monthDay, int weekday, int firstWeekday);
 
 class WidgetStore final {
 public:
@@ -79,7 +84,10 @@ public:
     static constexpr const char* kAssetRoot = "sdmc:/config/SwitchU/widgets/assets";
 
     bool load();
-    bool save() const;
+    // durable=false skips the SD commits: for the recent-activity saves around
+    // a launch or a return, where only that entry is new and a lag spike is
+    // the price. The menu's exit and every power action commit afterwards.
+    bool save(bool durable = true) const;
 
     const std::vector<Widget>& all() const { return m_widgets; }
     Widget* find(std::uint32_t id);

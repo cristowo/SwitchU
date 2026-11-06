@@ -80,6 +80,7 @@ private:
     std::uint32_t m_headroomNeedMb = 0;
     StreamStatus m_status{};
     float m_pollAccumMs = 0.f;
+    float m_headroomFileAccumMs = 0.f;
     float m_retryAccumMs = 0.f;
 };
 

@@ -9,6 +9,7 @@
 #include "core/AudioManager.hpp"
 #include "widgets/SelectionCursor.hpp"
 
+#include <memory>
 #include <string>
 #include <vector>
 #include <functional>
@@ -18,6 +19,7 @@
 
 namespace nxui {
 class Renderer;
+class ThreadPool;
 }
 
 class QuickSettingsOverlay : public nxui::Widget {
@@ -70,6 +72,8 @@ public:
         bool spotify = false;        // active source is Spotify (Switify)
         std::string coverKey;        // changes when the cover changes (Spotify)
         std::string playlistHeader;  // replaces "Playlist" when non-empty
+        // The playlist vectors were left empty because the list did not change.
+        bool listUnchanged = false;
     };
 
     struct Callbacks {
@@ -116,6 +120,7 @@ public:
     void setTheme(const nxui::Theme* t);
     void setInstantCursorMotion(bool instant) { m_cursor.setInstantMotion(instant); }
     void setInput(nxui::Input* input) { m_input = input; }
+    void setThreadPool(nxui::ThreadPool* pool) { m_threadPool = pool; }
     void setCallbacks(const Callbacks& cb) { m_callbacks = cb; }
     // Resolve music transport glyphs from the active icon pack (fallback default).
     void setIconGlyphResolver(std::function<std::string(const char* fileName)> resolve) {
@@ -182,6 +187,7 @@ private:
     int playlistRowForTrack(int trackIndex) const;
     const nxui::Texture* playlistThumbTexture(nxui::Renderer& ren, const std::string& key,
                                               const std::vector<uint8_t>* bytes);
+    void pollPlaylistThumbJob();
     void refreshCoverTexture(nxui::Renderer& ren);
     void seekFromProgressX(float x);
     void seekFromProgressX(float x, const nxui::Rect& track);
@@ -301,6 +307,10 @@ private:
     int   m_playlistExpandPlayingIndex = -2; // -2 = never synced
     std::vector<PlaylistThumb> m_playlistThumbs;
     uint32_t m_playlistThumbClock = 0;
+    struct PlaylistThumbJob;
+    std::shared_ptr<PlaylistThumbJob> m_playlistThumbJob; // one decode at a time
+    nxui::ThreadPool* m_threadPool = nullptr;
+    nxui::Renderer* m_lastRenderer = nullptr;
 
     nxui::Texture m_coverTex;
     std::vector<uint8_t> m_coverBytes;

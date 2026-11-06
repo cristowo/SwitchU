@@ -61,7 +61,7 @@ bool GpuDevice::initialize() {
     m_imgDescOff = m_dataPool.alloc(MAX_TEXTURES * sizeof(DkImageDescriptor), DK_IMAGE_DESCRIPTOR_ALIGNMENT);
     m_samDescOff = m_dataPool.alloc(MAX_SAMPLERS * sizeof(DkSamplerDescriptor), DK_SAMPLER_DESCRIPTOR_ALIGNMENT);
 
-    m_stagingPool.create(m_dev, 256 * 1024, DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached);
+    m_stagingPool.create(m_dev, kUploadSlots * 256 * 1024, DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached);
 
     createFramebuffers();
     createDepthStencil();
@@ -285,15 +285,8 @@ void GpuDevice::recreateSwapchain() {
         fbArray[i] = &m_fbImages[i];
     m_swapchain = dk::SwapchainMaker{m_dev, nwindowGetDefault(), fbArray}.create();
 
-    // Immediately present the pre-sleep framebuffer so the vi layer never
-    // flashes black/garbage during the wake transition. The framebuffers still
-    // hold the last frame rendered before sleep, so the screen stays seamless.
-    if (m_swapchain) {
-        const int slot = m_queue.acquireImage(m_swapchain);
-        if (slot >= 0)
-            m_queue.presentImage(m_swapchain, slot);
-    }
-
+    // Nothing is presented here: a fresh swapchain hands out whichever image it
+    // likes, not the last one shown, so this flashed an older frame on wake.
     // Force the next beginFrame() to re-acquire a slot from the fresh swapchain.
     m_slot = -1;
     logGpu("[GpuDevice] swapchain re-created after sleep (valid=%d)", (bool)m_swapchain);
@@ -354,6 +347,11 @@ void GpuDevice::freeImageMemory(uint32_t size) {
         m_imageMemUsed -= size;
     else
         m_imageMemUsed = 0;
+}
+
+void GpuDevice::forgetImageMemory(uint32_t size) {
+    size = (size + kGpuAlign - 1) & ~(kGpuAlign - 1);
+    m_imageMemUsed = size <= m_imageMemUsed ? m_imageMemUsed - size : 0;
 }
 
 GpuDevice::ImageAlloc GpuDevice::allocImageFromPool(uint32_t size, uint32_t alignment) {
@@ -421,6 +419,79 @@ void GpuDevice::resetImagePool() {
     m_poolMemUsed = 0;
 }
 
+bool GpuDevice::uploadTextureRegion(dk::Image& dst, const void* pixels, uint32_t x, uint32_t y,
+                                    uint32_t w, uint32_t h)
+{
+    const uint64_t size = static_cast<uint64_t>(w) * h * 4;
+    if (!pixels || size == 0 || m_uploadBatchActive)
+        return false;
+    return submitUpload(dst, pixels, static_cast<uint32_t>(size), {x, y, 0, w, h, 1});
+}
+
+bool GpuDevice::submitUpload(dk::Image& dst, const void* pixels, uint32_t size,
+                             const DkImageRect& rect) {
+    // A batch or a capture used all of the upload memory: it finishes first.
+    if (m_uploadInFlight) {
+        m_uploadFence.wait();
+        m_uploadInFlight = false;
+    }
+    // A big picture's own staging block goes as soon as its copy has run
+    // (not 16 uploads later: a row of backgrounds would hold tens of MB).
+    for (UploadSlot& done : m_uploadSlots)
+        if (done.busy && done.staging && done.fence.wait(0) == DkResult_Success) {
+            done.busy = false;
+            done.staging = {};
+        }
+    // This upload's slot. Its last copy ran long ago, unless 16 came at once.
+    const int index = m_uploadNext;
+    m_uploadNext = (m_uploadNext + 1) % kUploadSlots;
+    UploadSlot& slot = m_uploadSlots[index];
+    if (slot.busy) {
+        slot.fence.wait();
+        slot.busy = false;
+    }
+    slot.staging = {};
+
+    void* srcCpu = nullptr;
+    DkGpuAddr srcGpu = 0;
+    const uint32_t slotStaging = m_stagingPool.size / kUploadSlots;
+    if (size <= slotStaging) {
+        srcCpu = static_cast<uint8_t*>(m_stagingPool.cpuBase) + index * slotStaging;
+        srcGpu = m_stagingPool.block.getGpuAddr() + index * slotStaging;
+    } else {
+        const uint32_t allocSize = (size + kGpuAlign - 1) & ~(kGpuAlign - 1);
+        slot.staging = dk::MemBlockMaker{m_dev, allocSize}
+            .setFlags(DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached)
+            .create();
+        srcCpu = slot.staging.getCpuAddr();
+        srcGpu = slot.staging.getGpuAddr();
+        if (!srcCpu || !srcGpu) {
+            GpuDevice::logGpu("[GpuDevice] Failed temp staging allocation for texture (%u bytes)\n", size);
+            return false;
+        }
+    }
+    std::memcpy(srcCpu, pixels, size);
+
+    // This slot's part of the command memory: the copies before may still be
+    // waiting to run from theirs.
+    constexpr uint32_t slotCmd = 64 * 1024 / kUploadSlots;
+    m_uploadCmdbuf.clear();
+    m_uploadCmdbuf.addMemory(m_uploadCmdPool.block, index * slotCmd, slotCmd);
+    dk::ImageView view{dst};
+    m_uploadCmdbuf.copyBufferToImage({srcGpu, 0, 0}, view, rect);
+    // Drawing that follows on this queue sees the new pixels.
+    m_uploadCmdbuf.barrier(DkBarrier_Full, DkInvalidateFlags_Image);
+    m_uploadCmdbuf.signalFence(slot.fence);
+
+    // No waitIdle: that waited for every frame in flight, once per picture. The
+    // queue runs the copy before anything drawn after it. flush() hands it to
+    // the GPU now: a fence on work still sitting in the queue never signals.
+    m_queue.submitCommands(m_uploadCmdbuf.finishList());
+    m_queue.flush();
+    slot.busy = true;
+    return true;
+}
+
 bool GpuDevice::uploadTexture(dk::Image& dst, const void* pixels, uint32_t size,
                               uint32_t w, uint32_t h)
 {
@@ -460,46 +531,7 @@ bool GpuDevice::uploadTexture(dk::Image& dst, const void* pixels, uint32_t size,
         return true;
     }
 
-    waitForTextureUploads();
-
-    const void* srcCpu = nullptr;
-    DkGpuAddr srcGpu = 0;
-    dk::UniqueMemBlock tempStaging;
-
-    if (size <= m_stagingPool.size) {
-        srcCpu = m_stagingPool.cpuBase;
-        srcGpu = m_stagingPool.block.getGpuAddr();
-    } else {
-        uint32_t allocSize = (size + kGpuAlign - 1) & ~(kGpuAlign - 1);
-        tempStaging = dk::MemBlockMaker{m_dev, allocSize}
-            .setFlags(DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached)
-            .create();
-
-        srcCpu = tempStaging.getCpuAddr();
-        srcGpu = tempStaging.getGpuAddr();
-
-        if (!srcCpu || !srcGpu) {
-            GpuDevice::logGpu( "[GpuDevice] Failed temp staging allocation for texture (%u bytes)\n", size);
-            return false;
-        }
-    }
-
-    std::memcpy(const_cast<void*>(srcCpu), pixels, size);
-
-    // Use dedicated upload command buffer
-    m_uploadCmdbuf.clear();
-    m_uploadCmdbuf.addMemory(m_uploadCmdPool.block, 0, 64 * 1024);
-
-    dk::ImageView view{dst};
-    m_uploadCmdbuf.copyBufferToImage(
-        {srcGpu, 0, 0},
-        view,
-        {0, 0, 0, w, h, 1}
-    );
-
-    m_queue.submitCommands(m_uploadCmdbuf.finishList());
-    m_queue.waitIdle();
-    return true;
+    return submitUpload(dst, pixels, size, {0, 0, 0, w, h, 1});
 }
 
 void GpuDevice::beginTextureUploadBatch() {
@@ -515,6 +547,12 @@ void GpuDevice::beginTextureUploadBatch() {
 }
 
 void GpuDevice::waitForTextureUploads() {
+    for (UploadSlot& slot : m_uploadSlots)
+        if (slot.busy) {
+            slot.fence.wait();
+            slot.busy = false;
+            slot.staging = {};
+        }
     if (!m_uploadInFlight)
         return;
     m_uploadFence.wait();
@@ -530,6 +568,7 @@ void GpuDevice::endTextureUploadBatch() {
 
     m_uploadCmdbuf.signalFence(m_uploadFence);
     m_queue.submitCommands(m_uploadCmdbuf.finishList());
+    m_queue.flush(); // the fence only signals once the GPU has the work
     m_uploadInFlight = true;
     m_uploadBatchCount = 0;
 }
@@ -538,6 +577,10 @@ void GpuDevice::shutdown() {
     if (m_uploadBatchActive)
         endTextureUploadBatch();
     if (m_queue) m_queue.waitIdle();
+    for (UploadSlot& slot : m_uploadSlots) {
+        slot.busy = false;
+        slot.staging = {};
+    }
     m_swapchain    = {};
     for (int i = 0; i < NUM_FB; ++i)
         m_cmdbuf[i] = {};

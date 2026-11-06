@@ -6,6 +6,7 @@
 #include <switch.h>
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 namespace switchu::daemon::menu_la {
 
@@ -20,6 +21,8 @@ static bool g_commandEventAvailable = false;
 static LibAppletExitReason g_lastExitReason = LibAppletExitReason_Normal;
 static uint64_t g_startedAtTick = 0;
 static uint64_t g_lastRuntimeNs = 0;
+// The menu's last log lines, handed over as it exits.
+static std::string g_lastExitTail;
 
 inline bool hasHolder() {
     return g_holderCreated;
@@ -207,6 +210,16 @@ inline bool checkFinished() {
         switchu::FileLog::log("[menu_la] holder finished reason=%d",
                               (int)g_lastExitReason);
         appletHolderJoin(&g_holder);
+        g_lastExitTail.clear();
+        AppletStorage out{};
+        while (R_SUCCEEDED(appletHolderPopOutData(&g_holder, &out))) {
+            s64 size = 0;
+            appletStorageGetSize(&out, &size);
+            g_lastExitTail.resize(static_cast<size_t>(size > 0 && size < 16384 ? size : 0));
+            if (!g_lastExitTail.empty())
+                appletStorageRead(&out, 0, g_lastExitTail.data(), g_lastExitTail.size());
+            appletStorageClose(&out);
+        }
         const Result cleanupRc = cleanupHolder();
         if (R_FAILED(cleanupRc))
             switchu::FileLog::log("[menu_la] finished cleanup FAIL: 0x%X", cleanupRc);
@@ -219,6 +232,10 @@ inline LibAppletExitReason exitReason() {
     if (g_active)
         return appletHolderGetExitReason(&g_holder);
     return g_lastExitReason;
+}
+
+inline const std::string& lastExitTail() {
+    return g_lastExitTail;
 }
 
 inline uint64_t lastRuntimeNs() {
