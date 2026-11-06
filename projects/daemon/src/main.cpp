@@ -152,6 +152,40 @@ extern "C" void __appInit(void) {
 
     switchu::FileLog::open("daemon");
     switchu::FileLog::log("[daemon] __appInit complete (sd mount: 0x%X)", rc);
+
+    // Manager cannot overwrite its own running NRO during an in-app update.
+    // Promote the staged binary now that nothing holds the file lock.
+    {
+        namespace fs = std::filesystem;
+        const fs::path live =
+            "sdmc:/switch/SwitchU-Manager/SwitchU-Manager.nro";
+        const fs::path pending =
+            "sdmc:/switch/SwitchU-Manager/SwitchU-Manager.nro.new";
+        std::error_code promoteEc;
+        if (fs::is_regular_file(pending, promoteEc)) {
+            const fs::path backup = live.string() + ".old";
+            fs::remove(backup, promoteEc);
+            promoteEc.clear();
+            fs::rename(live, backup, promoteEc);
+            promoteEc.clear();
+            fs::rename(pending, live, promoteEc);
+            if (promoteEc) {
+                switchu::FileLog::log(
+                    "[daemon] Manager NRO promote rename FAIL ec=%d — trying copy",
+                    promoteEc.value());
+                promoteEc.clear();
+                fs::copy_file(pending, live,
+                              fs::copy_options::overwrite_existing, promoteEc);
+                if (!promoteEc)
+                    fs::remove(pending, promoteEc);
+            } else {
+                fs::remove(backup, promoteEc);
+            }
+            fsdevCommitDevice("sdmc");
+            switchu::FileLog::log("[daemon] Manager NRO promote done live=%s",
+                                  live.string().c_str());
+        }
+    }
     switchu::FileLog::log("[daemon] services time=%d setsys=%d set=%d ns=%d ldr=%d account=%d nssu=%d avm=%d psm=%d lbl=%d hid=%d",
                           g_timeReady ? 1 : 0,
                           g_setsysReady ? 1 : 0,
@@ -199,6 +233,9 @@ static bool g_generalChannelEventReady = false;
 static std::atomic<bool> g_eventRefreshPending{false};
 static std::atomic<bool> g_eventGcMountFailure{false};
 static std::atomic<bool> g_batteryRefreshPending{true};
+// Extra forced pushes after MenuReady so a notify that races the menu's first
+// AppletStorage drain still lands (undock/redock was the only recovery before).
+static int g_batteryReadyPushesLeft = 0;
 static std::atomic<Result> g_eventGcMountRc{0};
 static bool g_initialEventSkipped = false;
 static int  g_eventPollCountdown  = 0;
@@ -235,6 +272,10 @@ static constexpr uint64_t kMenuEarlyExitNs = 10'000'000'000ULL;
 static constexpr uint64_t kHomeMenuSettleNsIdle = 80'000'000ULL;        // ~80ms
 static constexpr uint64_t kHomeMenuSettleNsSuspended = 300'000'000ULL;  // ~300ms
 static constexpr uint64_t kHomeMenuGfxFailSettleNs = 2'500'000'000ULL; // 2.5s before sole relaunch
+// HOME asked for the foreground but AE never sent ChangeIntoForeground (it
+// already arrived just before the request, e.g. right at an app launch). Past
+// this, launch the menu anyway instead of ignoring every later HOME.
+static constexpr uint64_t kHomeForegroundHandoffDeadlineNs = 2'000'000'000ULL; // 2s
 static constexpr const char* kLastGfxFailPath = "sdmc:/config/SwitchU/last_gfx_fail.txt";
 static uint64_t g_lastMenuLaunchTick = 0;
 static uint64_t g_lastMenuLaunchSuspended = 0;
@@ -708,6 +749,20 @@ static Result setLiveAutomaticCorrection(bool enabled) {
     return rc;
 }
 
+// btm:sys accepts the audio device search from the system applet (stock HOME
+// runs System Settings in qlaunch); the menu's library applet gets 0x4028F.
+// The session stays open for the daemon's lifetime once a search was asked.
+static Result setAudioDeviceDiscovery(bool start) {
+    static bool btmsysOpen = false;
+    if (!btmsysOpen) {
+        const Result rc = btmsysInitialize();
+        if (R_FAILED(rc))
+            return rc;
+        btmsysOpen = true;
+    }
+    return start ? btmsysStartAudioDeviceDiscovery() : btmsysStopAudioDeviceDiscovery();
+}
+
 static Result setInternetTimeSync(bool enabled) {
     const Result setsysRc =
         setsysSetUserSystemClockAutomaticCorrectionEnabled(enabled);
@@ -857,17 +912,17 @@ static bool queryBatteryStatus(uint8_t& percent, PsmChargerType& chargerType) {
     return true;
 }
 
-static void pushBatteryStatusNotification(bool force) {
+static bool pushBatteryStatusNotification(bool force) {
     if (!daemon::menu_la::isActive())
-        return;
+        return false;
 
     uint8_t percent = 0;
     PsmChargerType chargerType = PsmChargerType_Unconnected;
     if (!queryBatteryStatus(percent, chargerType))
-        return;
+        return false;
 
     if (!force && percent == g_lastBatteryPercent && chargerType == g_lastChargerType)
-        return;
+        return true;
 
     g_lastBatteryPercent = percent;
     g_lastChargerType = chargerType;
@@ -877,6 +932,7 @@ static void pushBatteryStatusNotification(bool force) {
                           (unsigned)percent,
                           (unsigned)chargerType);
     pushNotification(smi::MenuMessage::BatteryStatusChanged, 0, payload);
+    return true;
 }
 
 static void logHomeState(const char* source, const char* stage) {
@@ -989,6 +1045,26 @@ static Result launchPendingHomeMenu() {
     return rc;
 }
 
+// The foreground handoff waited past kHomeForegroundHandoffDeadlineNs with no
+// ChangeIntoForeground: open the menu now (or drop the request if one is up).
+static void expirePendingHomeHandoff(const char* source) {
+    if (!g_pendingHomeMenuLaunch)
+        return;
+    const uint64_t waitedMs =
+        armTicksToNs(armGetSystemTick() - g_pendingHomeMenuStartedAt) / 1'000'000ULL;
+    if (daemon::menu_la::isActive()) {
+        switchu::FileLog::log("[%s] HOME handoff expired after %lums; menu already active",
+                              source, static_cast<unsigned long>(waitedMs));
+        g_pendingHomeMenuLaunch = false;
+        g_pendingHomeMenuSource = nullptr;
+        g_pendingHomeMenuStartedAt = 0;
+        return;
+    }
+    switchu::FileLog::log("[%s] HOME: no ChangeIntoForeground after %lums; launching MainMenu",
+                          source, static_cast<unsigned long>(waitedMs));
+    launchPendingHomeMenu();
+}
+
 static void requestPowerStateChange(const char* source, bool reboot) {
     Result rc = spsmInitialize();
     if (R_SUCCEEDED(rc)) {
@@ -1017,6 +1093,8 @@ static void requestPowerStateChange(const char* source, bool reboot) {
 static bool g_screenOffMusicWanted = false;
 static bool g_spotifyPlaying = false;
 static bool g_screenOff = false;
+// 0=Sleep, 1=Lock only, 2=Lock then Sleep (Theme Shop, when the lock is on).
+static uint8_t g_powerButtonAction = 0;
 
 // Real sleep stops every process, music included. So with the option on and
 // music audible a sleep request only turns the backlight off: the console stays
@@ -1111,16 +1189,15 @@ static void openMenuFromHome(const char* source) {
     cancelViewPolling("home");
 
     if (g_pendingHomeMenuLaunch) {
-        // HOME right as a title launches: AE's foreground message can come before
-        // the request, and no other follows. Waiting forever is a black screen
-        // that only a restart ends, so a later press goes ahead without it.
-        constexpr uint64_t kHandoffPatienceNs = 2'000'000'000ULL;
-        if (armTicksToNs(homeStartedAt - g_pendingHomeMenuStartedAt) >= kHandoffPatienceNs) {
-            switchu::FileLog::log("[%s] HOME: foreground handoff never confirmed; opening menu", source);
-            launchPendingHomeMenu();
+        if (armTicksToNs(homeStartedAt - g_pendingHomeMenuStartedAt)
+                >= kHomeForegroundHandoffDeadlineNs) {
+            expirePendingHomeHandoff(source);
             return;
         }
-        switchu::FileLog::log("[%s] HOME ignored: foreground handoff already pending", source);
+        // Ask again: a lost or pre-empted request must not leave HOME dead.
+        const Result fgRc = appletRequestToGetForeground();
+        switchu::FileLog::log("[%s] HOME repeat while handoff pending: RequestToGetForeground rc=0x%X",
+                              source, fgRc);
         return;
     }
 
@@ -1299,12 +1376,20 @@ static void handleAppletMessages() {
         // (32 is not a request a dark screen should refuse.)
         if (msg != 32 && enterScreenOff("applet-sleep"))
             break;
+        if (g_pendingHomeMenuLaunch) {
+            // A HOME still waiting for the foreground must not survive sleep:
+            // after wake the app resumes and a fresh HOME press starts over.
+            switchu::FileLog::log("[ae] clearing pending HOME foreground handoff: sleep");
+            g_pendingHomeMenuLaunch = false;
+            g_pendingHomeMenuSource = nullptr;
+            g_pendingHomeMenuStartedAt = 0;
+        }
         // The application keeps its IApplicationAccessor across system sleep,
         // but must reacquire the foreground after wake. Keep our session state
         // in sync so the Wakeup path is allowed to call app::resume().
         daemon::app::onHomeSuspend();
-        // The console is going under on its own (idle plan or power button):
-        // the menu needs the same handoff as a menu-initiated sleep.
+        // Horizon has already committed to sleep on these messages — we cannot
+        // remap Power to Lock-only. Handoff Lock when enabled, then sleep.
         startSleepSequence("applet-sleep");
         break;
 
@@ -1775,11 +1860,24 @@ static void handleMenuCommand() {
         return;
     }
 
+    case smi::SystemMessage::StartAudioDiscovery:
+    case smi::SystemMessage::StopAudioDiscovery: {
+        const bool start = msg == smi::SystemMessage::StartAudioDiscovery;
+        result = setAudioDeviceDiscovery(start);
+        switchu::FileLog::log("[smi] Bluetooth audio search %s rc=0x%X",
+                              start ? "start" : "stop", result);
+        pushCommandResult(requestId, result,
+                          start ? "StartAudioDiscovery" : "StopAudioDiscovery");
+        return;
+    }
+
     case smi::SystemMessage::SetLockScreen: {
         auto args = reader.pop<smi::LockScreenArgs>();
         g_lockScreenEnabled = args.enabled != 0;
         g_lockScreenWhenDocked = args.when_docked != 0;
-        switchu::FileLog::log("[smi] lock screen enabled=%d", g_lockScreenEnabled ? 1 : 0);
+        g_powerButtonAction = args.power_button > 2 ? 0 : args.power_button;
+        switchu::FileLog::log("[smi] lock screen enabled=%d power_button=%u",
+                              g_lockScreenEnabled ? 1 : 0, (unsigned)g_powerButtonAction);
         return;
     }
 
@@ -1801,6 +1899,7 @@ static void handleMenuCommand() {
         clearLastGfxFailMarker();
         g_lastOperationFailure = {};
         g_batteryRefreshPending.store(true);
+        g_batteryReadyPushesLeft = 3;
         shortenCatalogHold(kCatalogHoldAfterMenuReadyNs);
         restoreNormalPerformance("menu-ready");
         break;
@@ -2036,12 +2135,17 @@ static void mainLoop() {
                              (uint32_t)g_eventGcMountRc.load());
         }
     }
-    // Keep the request until a menu is actually there to receive it: consuming
-    // it earlier left a freshly started menu showing 0 % with no charge icon.
-    if (g_batteryRefreshPending.load() && daemon::menu_la::isActive()) {
-        g_batteryRefreshPending.store(false);
-        pushBatteryStatusNotification(true);
-        g_lastBatteryPollTick = armGetSystemTick();
+    // Keep the request until a menu is actually there AND PSM answers. Clearing
+    // the flag on a failed query left HOME stuck at the widget's unknown→0%
+    // render until the next dock/undock PSM event.
+    if ((g_batteryRefreshPending.load() || g_batteryReadyPushesLeft > 0)
+        && daemon::menu_la::isActive()) {
+        if (pushBatteryStatusNotification(true)) {
+            g_batteryRefreshPending.store(false);
+            if (g_batteryReadyPushesLeft > 0)
+                --g_batteryReadyPushesLeft;
+            g_lastBatteryPollTick = armGetSystemTick();
+        }
     }
     // The PSM state event only fires for charger / power-supply / voltage
     // changes, never for the percentage itself, so a menu left open kept the
@@ -2228,6 +2332,13 @@ static void mainLoop() {
                 "(tries=%d/%d) press HOME again",
                 g_menuGfxRelaunchTries, kMenuGfxRelaunchMaxTries);
         }
+        didWork = true;
+    }
+
+    if (g_pendingHomeMenuLaunch
+        && armTicksToNs(armGetSystemTick() - g_pendingHomeMenuStartedAt)
+               >= kHomeForegroundHandoffDeadlineNs) {
+        expirePendingHomeHandoff("main");
         didWork = true;
     }
 

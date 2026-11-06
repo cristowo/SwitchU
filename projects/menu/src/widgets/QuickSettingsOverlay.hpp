@@ -49,7 +49,8 @@ public:
     };
 
     enum class PowerAction {
-        Sleep = 0,
+        Lock = 0,
+        Sleep,
         Reboot,
         Shutdown,
         Count
@@ -84,6 +85,7 @@ public:
         std::function<void(bool)>  onWifiToggled;
         std::function<void(bool)>  onBatterySaverToggled;
         std::function<void()>      onSleepRequested;
+        std::function<void()>      onLockRequested;
         std::function<void()>      onRebootRequested;
         std::function<void()>      onShutdownRequested;
         std::function<void()>      onClose;
@@ -145,6 +147,9 @@ public:
     // relabel it — preference underneath is unchanged.
     void setFrameTapLiteEngaged(bool engaged);
     bool frameTapLiteEngaged() const { return m_frameTapLiteEngaged; }
+    void setLockScreenEnabled(bool enabled);
+    bool lockScreenEnabled() const { return m_lockScreenEnabled; }
+    void hideCursorInstant();
     void setInitialValues(float brightness, float bgmVolume, float sfxVolume,
                           bool airplaneMode, bool wifiEnabled);
     void refreshMusicState();
@@ -214,6 +219,9 @@ private:
     nxui::Rect computePlaylistRect() const;
     nxui::Rect computeItemRect(ItemIndex item) const;
     nxui::Rect computePowerButtonRect(PowerAction action) const;
+    int powerButtonSlotCount() const;
+    int powerButtonSlotIndex(PowerAction action) const;
+    PowerAction powerButtonAtSlot(int slot) const;
     nxui::Rect computeSliderTrackRect(ItemIndex item) const;
     nxui::Rect computeMusicControlRect(MusicControl control) const;
     nxui::Rect computeMusicCardRect() const;
@@ -260,6 +268,7 @@ private:
     bool  m_wifiEnabled = true;
     bool  m_batterySaver = false;
     bool  m_frameTapLiteEngaged = false;
+    bool  m_lockScreenEnabled = false;
 
     MusicUiState m_music;
 

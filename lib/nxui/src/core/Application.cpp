@@ -214,6 +214,11 @@ void Application::dispatchInput() {
                 if (leftStickDown && cur->fireAction(static_cast<uint64_t>(leftStick))) return;
                 if (rightStickDown && cur->fireAction(static_cast<uint64_t>(rightStick))) return;
             }
+            // Activity may swallow spatial D-pad steps during HOME overlay chords
+            // (Ultrahand L+R+Y+D-pad) without delaying solo stick browsing.
+            if (dpadDown && m_activity && !m_activity->allowDpadFocusNavigation(dpad))
+                dpadDown = false;
+            if (!dpadDown && !leftStickDown && !rightStickDown) return;
             fm.navigate(dir, root);
         };
 
@@ -256,6 +261,13 @@ void Application::run() {
     bool docked = false;
     int dockCheckIn = 0;
 
+    constexpr float kFrameStatsWindowSec = 10.f;
+    constexpr float kSlowFrameWorkMs = 25.f;   // update + render past this is a visible hitch
+    const float tickToMs = 1000.f / static_cast<float>(armGetSystemTickFreq());
+    FrameStats window{};
+    float windowIntervalSumMs = 0.f;
+    uint64_t lastSlowReport = 0;
+
     while (m_running) {
         uint64_t nowTick = armGetSystemTick();
         float dt = static_cast<float>(nowTick - prevTick)
@@ -270,9 +282,14 @@ void Application::run() {
             // daemon is read; anything else it does is skipped on its side.
             if (m_activity)
                 m_activity->onUpdate(dt);
-            svcSleepThread(50'000'000ULL);
+            // If onUpdate cleared sleeping (wake), fall through and present
+            // immediately — don't burn another 50ms before the first frame.
+            if (m_sleeping) {
+                svcSleepThread(50'000'000ULL);
+                prevTick = armGetSystemTick();
+                continue;
+            }
             prevTick = armGetSystemTick();
-            continue;
         }
 
         m_input.update();
@@ -296,11 +313,13 @@ void Application::run() {
 
             if (m_renderEnabled) {
                 // Static menus do not need a full GPU submission at 60 Hz.
-                // Keep input/update responsive, but on battery present every
-                // other frame once the UI has been idle long enough for
-                // transitions to settle. Any new input immediately restores
-                // 60 Hz. Docked stays at 60 Hz, and 30 Hz is the floor: the
-                // background keeps animating and looks choppy below that.
+                // Keep input/update responsive, but on battery present at
+                // 30 Hz once the UI has been idle long enough for transitions
+                // to settle: every second vblank (a steady 30 Hz; a 16 ms
+                // sleep drifted off vsync and stuttered anything still
+                // animating). Any new input restores 60 Hz on the next frame.
+                // Docked stays at 60 Hz. A slower stride (the lock screen,
+                // Battery Saver) skips whole frames instead.
                 unsigned stride = 1;
                 if (m_idlePresentStride > 1) {
                     if (idleSeconds >= 0.3f)
@@ -319,13 +338,15 @@ void Application::run() {
                     if (!docked)
                         stride = 2;
                 }
-                if (stride > 1 && ++idleFrame % stride != 0) {
+                m_gpu.setSwapInterval(stride == 2 ? 2 : 1);
+                if (stride > 2 && ++idleFrame % stride != 0) {
                     svcSleepThread(16'000'000ULL);
                     continue;
                 }
-                const uint64_t updateDone = armGetSystemTick();
+                const bool idle = stride > 1;
+                const uint64_t updateEnd = armGetSystemTick();
                 m_gpu.beginFrame();
-                const uint64_t acquireDone = armGetSystemTick();
+                const uint64_t renderStart = armGetSystemTick();
                 m_renderer->beginFrame();
                 m_activity->m_rootBox->render(*m_renderer);
                 m_activity->onRender(*m_renderer);
@@ -334,18 +355,50 @@ void Application::run() {
                 m_gpu.endFrame();
                 const uint64_t presentDone = armGetSystemTick();
                 m_activity->onAfterPresent(*m_renderer);
+                const uint64_t renderEnd = armGetSystemTick();
                 if (m_frameObserver) {
-                    const float toMs = 1000.f / static_cast<float>(armGetSystemTickFreq());
-                    const uint64_t frameDone = armGetSystemTick();
                     FrameTiming timing;
-                    timing.inputMs = static_cast<float>(inputDone - nowTick) * toMs;
-                    timing.updateMs = static_cast<float>(updateDone - inputDone) * toMs;
-                    timing.acquireMs = static_cast<float>(acquireDone - updateDone) * toMs;
-                    timing.renderMs = static_cast<float>(renderDone - acquireDone) * toMs;
-                    timing.presentMs = static_cast<float>(presentDone - renderDone) * toMs;
-                    timing.afterMs = static_cast<float>(frameDone - presentDone) * toMs;
-                    timing.totalMs = static_cast<float>(frameDone - nowTick) * toMs;
+                    timing.inputMs = static_cast<float>(inputDone - nowTick) * tickToMs;
+                    timing.updateMs = static_cast<float>(updateEnd - inputDone) * tickToMs;
+                    timing.acquireMs = static_cast<float>(renderStart - updateEnd) * tickToMs;
+                    timing.renderMs = static_cast<float>(renderDone - renderStart) * tickToMs;
+                    timing.presentMs = static_cast<float>(presentDone - renderDone) * tickToMs;
+                    timing.afterMs = static_cast<float>(renderEnd - presentDone) * tickToMs;
+                    timing.totalMs = static_cast<float>(renderEnd - nowTick) * tickToMs;
                     m_frameObserver(timing);
+                }
+
+                if (m_frameStatsSink) {
+                    const float updateMs = static_cast<float>(updateEnd - nowTick) * tickToMs;
+                    const float renderMs = static_cast<float>(renderEnd - renderStart) * tickToMs;
+                    const float intervalMs = dt * 1000.f;
+                    ++window.frames;
+                    if (idle) ++window.idleFrames;
+                    window.seconds += dt;
+                    windowIntervalSumMs += intervalMs;
+                    window.maxMs = std::max(window.maxMs, intervalMs);
+                    window.maxUpdateMs = std::max(window.maxUpdateMs, updateMs);
+                    window.maxRenderMs = std::max(window.maxRenderMs, renderMs);
+                    // 60 Hz budget 16.7 ms (idle 33.3 ms); half a vblank of slack.
+                    if (intervalMs > (idle ? 41.7f : 25.f)) ++window.missed;
+
+                    if (updateMs + renderMs > kSlowFrameWorkMs
+                        && static_cast<float>(renderEnd - lastSlowReport) * tickToMs > 1000.f) {
+                        lastSlowReport = renderEnd;
+                        FrameStats slow{};
+                        slow.slowFrame = true;
+                        slow.frames = 1;
+                        slow.maxMs = intervalMs;
+                        slow.maxUpdateMs = updateMs;
+                        slow.maxRenderMs = renderMs;
+                        m_frameStatsSink(slow);
+                    }
+                    if (window.seconds >= kFrameStatsWindowSec) {
+                        window.avgMs = windowIntervalSumMs / static_cast<float>(window.frames);
+                        m_frameStatsSink(window);
+                        window = {};
+                        windowIntervalSumMs = 0.f;
+                    }
                 }
             } else {
                 // Yield CPU while another app owns the foreground.

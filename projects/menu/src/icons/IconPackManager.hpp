@@ -9,11 +9,12 @@ namespace switchu::icons {
 inline constexpr const char* kDefaultPackId = "default";
 
 // Theme-bundled icon sets appear as theme:<themeFolder> (e.g. theme:iisu).
-// Glyphs stay under sdmc:/config/SwitchU/themes/<folder>/assets/icons/.
+// Glyphs live under <themeRoot>/assets/icons/ for both shop and manual installs.
 // Use a string literal array (not const char*) so sizeof gives the text length.
 inline constexpr char kThemePackPrefix[] = "theme:";
 inline constexpr std::size_t kThemePackPrefixLen = sizeof(kThemePackPrefix) - 1; // 6
 inline constexpr const char* kInstalledThemesDir = "sdmc:/config/SwitchU/themes";
+inline constexpr const char* kManualThemesDir = "sdmc:/switch/SwitchU/themes";
 
 // Writable pack directory on the SD card. Downloaded packs land here even in
 // the homebrew build, where the built-in packs are read from romfs.
@@ -86,9 +87,10 @@ std::string resolvePackIconsDirectory(const std::string& assetsBase, const std::
 
 std::string displayNameForPack(const std::string& packId);
 
-// Prefer pack preview.png; else cached transparent mosaic; else bake once
-// under sdmc:/config/SwitchU/icon_pack_previews/ (fills missing glyphs from
-// default). The mosaic is rebaked when the pack's glyphs are newer than it.
+// Prefer an on-device transparent mosaic from the pack's live glyphs (cached
+// under sdmc:/config/SwitchU/icon_pack_previews/, missing slots filled from
+// default). Falls back to authored preview.png only if baking fails. The
+// mosaic is rebaked when the pack's glyphs are newer than the cache.
 std::string ensurePackPreview(const std::string& packDir, const std::string& packId = {});
 
 bool isThemePackId(const std::string& packId);

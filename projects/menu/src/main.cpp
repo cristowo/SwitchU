@@ -109,8 +109,13 @@ bool applyScreenUnderscan() {
 } // namespace switchu::menu
 
 #ifndef SWITCHU_HOMEBREW
+extern "C" size_t g_switchuHeapSize;
+extern "C" char* fake_heap_start;
+extern "C" char* fake_heap_end;
+
 namespace {
-constexpr size_t kHeapLadder[] = {
+// Full ladder — used only after SD is up when Frame Tap is NOT installed.
+constexpr size_t kHeapLadderFull[] = {
     416u * 1024u * 1024u,
     400u * 1024u * 1024u,
     384u * 1024u * 1024u,
@@ -128,33 +133,101 @@ constexpr size_t kHeapLadder[] = {
     128u * 1024u * 1024u,
     96u * 1024u * 1024u,
 };
+// Boot lean: __libnx_initheap cannot see SD (sm/fs not up yet). Starting lean
+// leaves ~42 MB Applet-pool free for FT's donor. Non-FT consoles grow via
+// expandHeapIfNoFrameTap() once sdmc is mounted. Soak showed runtime shrink
+// does not return pool pages (process total unchanged).
+constexpr size_t kHeapLadderBootLean[] = {
+    304u * 1024u * 1024u,
+    288u * 1024u * 1024u,
+    272u * 1024u * 1024u,
+    256u * 1024u * 1024u,
+    240u * 1024u * 1024u,
+    kMenuAppletHeapSize,
+    // Short applet pool (a title suspended, Spotify playing): any heap beats
+    // none, which left the menu unable to open its log.
+    192u * 1024u * 1024u,
+    160u * 1024u * 1024u,
+    128u * 1024u * 1024u,
+    96u * 1024u * 1024u,
+};
+
+bool frameTapConfigPresent() {
+    FILE* f = std::fopen("sdmc:/config/switch-frame-tap/config.ini", "rb");
+    if (!f)
+        return false;
+    std::fclose(f);
+    return true;
 }
 
-size_t g_switchuHeapSize = 0;
-static size_t g_switchuHeapAvailable = 0;
+// Free in this process's limit beyond the heap it already holds.
+size_t g_switchuHeapAvailable = 0;
 // Kernel time to map + clear the heap; paid on every HOME (menu cold start).
-static uint64_t g_switchuHeapInitNs = 0;
+uint64_t g_switchuHeapInitNs = 0;
 
-extern "C" void __libnx_initheap(void) {
-    extern char* fake_heap_start;
-    extern char* fake_heap_end;
+// The largest heap the menu may take. What the limit says is free is not all
+// free: a sysmodule in the applet pool (Switify was) takes memory from it that
+// this limit does not count. Taking nearly all of it left the system without
+// memory for the menu's own sessions, and FS dropped them. The menu peaks at
+// ~80 MiB. 0 means unknown (no cap).
+size_t heapCeiling(size_t currentHeap) {
+    u64 total = 0, used = 0;
+    if (R_FAILED(svcGetInfo(&total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0)) ||
+        R_FAILED(svcGetInfo(&used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0)) ||
+        total <= used)
+        return 0;
+    g_switchuHeapAvailable = static_cast<size_t>(total - used);
+    constexpr size_t kHeadroom = 64u * 1024u * 1024u;
+    const size_t reachable = g_switchuHeapAvailable + currentHeap;
+    return reachable > kHeadroom ? reachable - kHeadroom : 0;
+}
+
+// Over the ceiling, skip a size; the smallest ones are always tried.
+bool heapSizeAllowed(size_t requested, size_t ceiling) {
+    constexpr size_t kAlwaysTry = 96u * 1024u * 1024u;
+    return ceiling == 0 || requested <= ceiling || requested <= kAlwaysTry;
+}
+
+void expandHeapIfNoFrameTap() {
+    if (frameTapConfigPresent()) {
+        DebugLog::log("[ft-heap] boot lean kept (%zuKB) — FT config present",
+                      g_switchuHeapSize / 1024u);
+        return;
+    }
 
     void* address = nullptr;
     size_t granted = 0;
+    const size_t ceiling = heapCeiling(g_switchuHeapSize);
+    for (size_t requested : kHeapLadderFull) {
+        if (requested <= g_switchuHeapSize || !heapSizeAllowed(requested, ceiling))
+            continue;
+        if (R_SUCCEEDED(svcSetHeapSize(&address, requested)) && address) {
+            granted = requested;
+            break;
+        }
+    }
+    if (granted == 0) {
+        DebugLog::log("[ft-heap] no-FT grow skipped (already %zuKB, ceiling %zuKB)",
+                      g_switchuHeapSize / 1024u, ceiling / 1024u);
+        return;
+    }
+    const size_t before = g_switchuHeapSize;
+    g_switchuHeapSize = granted;
+    fake_heap_start = static_cast<char*>(address);
+    fake_heap_end = static_cast<char*>(address) + granted;
+    DebugLog::log("[ft-heap] no-FT grow %zuKB -> %zuKB", before / 1024u, granted / 1024u);
+}
+}
+
+size_t g_switchuHeapSize = 0;
+
+extern "C" void __libnx_initheap(void) {
+    void* address = nullptr;
+    size_t granted = 0;
     const uint64_t startTick = armGetSystemTick();
-    u64 total = 0, used = 0;
-    if (R_SUCCEEDED(svcGetInfo(&total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0)) &&
-        R_SUCCEEDED(svcGetInfo(&used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0)) &&
-        total > used)
-        g_switchuHeapAvailable = static_cast<size_t>(total - used);
-    // What the limit says is free is not all free: a sysmodule in the applet pool
-    // (Switify was) takes memory from it that this limit does not count. Taking
-    // nearly all of it left the system without memory for the menu's own
-    // sessions, and FS dropped them. The menu peaks at ~80 MiB.
-    constexpr size_t kHeadroom = 64u * 1024u * 1024u;
-    const size_t ceiling = g_switchuHeapAvailable > kHeadroom ? g_switchuHeapAvailable - kHeadroom : 0;
-    for (size_t requested : kHeapLadder) {
-        if (ceiling != 0 && requested > ceiling && requested > kHeapLadder[std::size(kHeapLadder) - 1])
+    const size_t ceiling = heapCeiling(0);
+    for (size_t requested : kHeapLadderBootLean) {
+        if (!heapSizeAllowed(requested, ceiling))
             continue;
         if (R_SUCCEEDED(svcSetHeapSize(&address, requested))) {
             granted = requested;
@@ -292,6 +365,8 @@ extern "C" void __appInit(void) {
     DebugLog::log("[menu] __appInit complete (sd mount: 0x%X)", rc);
     DebugLog::log("[fs] early probe tries=%d rc=0x%X 0x%X 0x%X 0x%X", probeTries + 1,
                   probeRc[0], probeRc[1], probeRc[2], probeRc[3]);
+    // Grow off the boot-lean heap when Frame Tap is not installed.
+    expandHeapIfNoFrameTap();
 
     rc = nsInitialize();
     if (R_FAILED(rc))

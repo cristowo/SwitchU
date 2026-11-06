@@ -21,6 +21,7 @@
 #include "widgets/QuickSettingsOverlay.hpp"
 #include "widgets/ContextMenu.hpp"
 #include "widgets/ProgressDialog.hpp"
+#include "widgets/LockScreen.hpp"
 #include "widgets/AppletButton.hpp"
 #include "widgets/PageIndicator.hpp"
 #include "widgets/ProfileCarouselScreen.hpp"
@@ -48,6 +49,7 @@
 #include "core/FolderPeekComposite.hpp"
 #include "core/WidgetStore.hpp"
 #include "core/ThemePreset.hpp"
+#include "widgets/LockClockFonts.hpp"
 #include "core/LeaveFrameCache.hpp"
 #include "sidebar/SidebarManager.hpp"
 #include "launcher/AppletLauncher.hpp"
@@ -66,6 +68,7 @@
 #include <nxui/widgets/GlassPanel.hpp>
 #include <nxui/widgets/Label.hpp>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -108,6 +111,7 @@ public:
     void onAfterPresent(nxui::Renderer& ren) override;
 
     nxui::Widget* focusRoot() override;
+    bool allowDpadFocusNavigation(nxui::Button button) override;
 
 private:
     struct GridLayoutMetrics {
@@ -397,6 +401,7 @@ private:
     PageArrowAnim m_arrowAnimLeft, m_arrowAnimRight;
     bool m_touchArrowLeft = false, m_touchArrowRight = false;
     bool m_touchBattery = false;
+    bool m_touchLayoutFlip = false;
 
     nxui::Rect pageArrowRect(bool left);
     nxui::Rect deletePageButtonRect() const;
@@ -473,6 +478,29 @@ private:
                                    nxui::Texture* composite);
     void wireFocusCallback();
     void wireGlobalActions();
+    // HOME button shortcuts arm on press. Shoulder/face actions fire only as
+    // clean taps (press+release under kHomeChordTapMaxSec) so holding L/R/A/…
+    // for Sphaira / Ultrahand / HOS overlays does not open Quick Settings etc.
+    // D-pad still settles after a short grace while held for focus repeat.
+    enum class HomeChordShortcut : std::uint8_t {
+        QuickSettings = 0, // L
+        Sort,              // R
+        EditMove,          // Y
+        Activate,          // A
+        PagePrev,          // ZL
+        PageNext,          // ZR
+        Properties,        // Plus
+        ChangeView,        // Minus
+        NavLeft,           // D-pad Left
+        NavRight,          // D-pad Right
+        NavUp,             // D-pad Up
+        NavDown,           // D-pad Down
+        Count
+    };
+    void armHomeChordShortcut(HomeChordShortcut which);
+    void cancelHomeChordShortcuts();
+    void tickHomeChordShortcutGuards(float dt);
+    void openFocusedSelectionProperties();
     void toggleAccessibilitySpeech();
     bool handleAccessibilityToggleCombo();
     bool isCurrentFocusableWidget(nxui::Widget* w) const;
@@ -487,6 +515,13 @@ private:
     // music and doing its frame work for the whole sleep.
     void enterSystemSleep();
     void leaveSystemSleep();
+    /// Sleep-only Lock view (not AppLayoutMode). Curtain unlock restores HOME.
+    void enterLockView(bool instant = false);
+    void finishExitLockView(bool resumeSuspended);
+    bool lockViewActive() const { return m_lockViewActive; }
+    void applyLockScreenClockFont();
+    void refreshLockClockFontEntries();
+    void restoreFocusAfterLock();
     void pollSleepNotifications();
     void onUpdateAwake(float dt);
     void tickFrameTapLightPath(float dt);
@@ -607,6 +642,15 @@ private:
     // Tall Poster tiles + icon loader preference for single-row only.
     void syncSingleRowPosterPresentation(bool forceReloadIcons = false);
     bool preferPosterForMode(AppLayoutMode mode) const;
+    // Posters / heroes down: Battery Saver, or Frame Tap mapping its capture
+    // memory. A viewer merely watching HOME keeps the art.
+    bool frameTapArtSuppressed() const;
+    // NeedHeadroom that free memory already covers (logs when true).
+    bool frameTapHeadroomCoveredWithoutReclaim(std::uint32_t needMb) const;
+    // Present at start: a connected viewer always gets the hard reclaim again.
+    static constexpr const char* kFtViewerReclaimFlag =
+        "sdmc:/config/SwitchU/ft_viewer_reclaim";
+    bool m_ftViewerReclaimForced = false;
     void beginLayoutArtPrefetch();
     void beginVisibleArtWait();
     void commitPendingLayoutVisuals();
@@ -643,13 +687,30 @@ private:
     switchu::services::AutoThemeService m_autoTheme;
     switchu::services::FrameTapStatus m_frameTapStatus;
     bool                     m_frameTapLightActive = false;
-    // Heroes suppressed in lite (~8 MiB) — spend a slice on ±3 posters
-    // (was ±2); still well under remount cushion.
-    // Focus ±3 icons (posters suppressed while lite).
-    static constexpr int     kFrameTapLightBrowseRadius = 3;
+    // Focus ±4 while a viewer is connected: every card the single row shows
+    // (pitch 158 px on 1280) has its art; ~8 posters of 600 KB extra.
+    static constexpr int     kFrameTapLightBrowseRadius = 4;
     // Delay leave-light on brief viewer drops so soft-land cannot refill
     // past FT remount needs (soak: LEAVE→img 34MB→free 8KB).
     float                    m_frameTapViewerGoneSec = 0.f;
+    // Inputs of the per-frame showFocusedSteamGridDbArtwork() call.
+    struct BackdropSyncKey {
+        const void*   focus = nullptr;
+        int           focusIndex = -1;
+        std::uint64_t held = 0;
+        int           layout = -1;
+        int           modelCount = -1;
+        bool          edit = false;
+        bool          deferPreload = false;
+        bool          allowed = false;
+        bool operator==(const BackdropSyncKey&) const = default;
+    };
+    BackdropSyncKey          m_lastBackdropSync{};
+    bool                     m_backdropSyncValid = false;
+    float                    m_backdropSyncSec = 0.f;
+    // need_capture_remount poll (first tick checks at once).
+    float                    m_ftRemountFilePollSec = 1e9f;
+    bool                     m_ftAsksRemountFile = false;
     static constexpr float   kFrameTapViewerGoneLeaveSec = 4.f;
     // After NeedHeadroom reclaim+ACK, hold focus-only and skip re-reclaim so
     // restore→reload→hard-release does not flash icons (soak: 659 ACKs).
@@ -660,7 +721,16 @@ private:
     // Keep focus-only only long enough for FT donor map; full 30s hold stays
     // ACK-only (no re-reclaim). Soak: 30s at cap=0 → empty until visited then dump.
     static constexpr float   kFtRemountBrowseGraceSec = 2.5f;
+    // After Applet-heap shrink, wait longer before ±3 refill so the donor map
+    // isn't racing icon uploads (stuck-spinner soak).
+    static constexpr float   kFtDonorMapBrowseGraceSec = 6.f;
     bool                     m_ftRemountBrowseRestored = false;
+    // Boot only: window often opens before FT's vi mitm. Arm when FT is absent
+    // at first probe; skip on HOME return (process restart with mitm already up).
+    // See GpuDevice::remountDisplayForCaptureMitm.
+    bool                     m_ftCaptureRemountProbed = false;
+    bool                     m_ftCaptureRemountNeeded = false;
+    bool                     m_ftCaptureRemountDone = false;
     // Normal-path idle: drip-destroy unbound streamer MemBlocks.
     float                    m_streamerIdleSec = 0.f;
     int                      m_streamerIdleLastPage = -1;
@@ -714,6 +784,13 @@ private:
     std::shared_ptr<AutoThemeScreen>   m_autoThemeScreen;
     std::shared_ptr<ControllerTestScreen> m_controllerTest;
     std::shared_ptr<ProfileCarouselScreen> m_profileCarousel;
+    std::shared_ptr<LockScreen> m_lockScreen;
+    std::vector<switchu::lockfonts::Entry> m_lockClockFontEntries;
+    nxui::Widget* m_lockReturnFocus = nullptr;
+    std::uint64_t m_lockReturnTitleId = 0;
+    int m_lockExitCursorHoldFrames = 0;
+    bool m_lockViewActive = false;
+    float m_sleepHoldSec = 0.f;
     std::shared_ptr<TextEntryScreen>      m_textEntry;
 
     nxui::Texture m_gameCardTex;
@@ -862,6 +939,9 @@ private:
     std::string m_lockTimeStr;
     std::string m_lockDateStr;
     bool m_editMode          = false;
+    // Same-frame A after edit place: icon action exits edit, then bubbled root
+    // A would arm Activate and open/launch the tile — suppress that press.
+    bool m_editPlacementConsumedA = false;
     int  m_editSourceIndex   = -1;
     int  m_editTargetIndex   = -1;
     int  m_editOriginRootSlot = -1;
@@ -888,6 +968,8 @@ private:
     // Countdown while the hover-opened folder swaps in.
     float m_editDragFolderOpenWait = 0.f;
     std::vector<uint64_t> m_layoutSlots;
+    // The A-Z / Recent grid as shown (empty when the personal layout is shown).
+    std::vector<uint64_t> m_lastProjectedSlots;
     std::unordered_map<std::uint64_t, switchu::widgets::WidgetSize> m_gameSizes;
     bool m_layoutDirty = false;
     struct FolderCoverCacheEntry {
@@ -1145,6 +1227,7 @@ private:
     bool  m_audioInitPending = false;
     bool  m_audioHeldLogged  = false;
     bool m_fastReturnRequested = false;
+    bool m_startLocked = false; // MenuStartMode::LockScreen with suspended game
     std::future<void> m_themePackageTransferFuture;
     std::future<void> m_softwareDeleteFuture;
     Result m_softwareDeleteResult = 0;
@@ -1168,6 +1251,15 @@ private:
     bool m_accessibilityToggleComboHeld = false;
     bool m_plusExitPending = false;
     float m_plusExitPendingTimer = 0.f;
+    // >=0 while an armed HOME shortcut is pending; <0 idle.
+    float m_pendingHomeChordSec[static_cast<std::size_t>(HomeChordShortcut::Count)] = {
+        -1.f, -1.f, -1.f, -1.f, -1.f, -1.f, -1.f, -1.f,
+        -1.f, -1.f, -1.f, -1.f
+    };
+    // D-pad: fire once after this grace while held, then Application repeats.
+    static constexpr float kHomeChordGraceSec = 0.08f;
+    // L/R/Y/A/ZL/ZR/Plus/Minus: release under this = tap; hold longer = modifier.
+    static constexpr float kHomeChordTapMaxSec = 0.35f;
     nxui::AnimatedFloat m_hintPanelW{0.f};
     nxui::AnimatedFloat m_hintPanelH{0.f};
     nxui::AnimatedFloat m_hintContentReveal{1.f};

@@ -77,6 +77,11 @@ public:
 
     /// Only the shapes, for drawing them over something else (the lock screen).
     void renderShapes(nxui::Renderer& ren, float opacityMul);
+    /// Full wallpaper stack (gradient + image + shapes) shifted by dy —
+    /// used as the Lock curtain plane so Theme Shop art slides with unlock.
+    /// Optional uniform scale around screen center (Lock Zoom transition).
+    void renderShifted(nxui::Renderer& ren, float dy, float opacityMul = 1.f,
+                       float scale = 1.f);
 
     void regenerate(int count = 50) override;
 

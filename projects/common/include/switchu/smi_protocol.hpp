@@ -21,8 +21,9 @@ enum class MenuMessage : uint32_t {
     AppViewFlagsUpdate    =  9,
     BatteryStatusChanged  = 10,
     OperationFailed       = 11,
-    ScreenOff             = 12,
-    ScreenOn              = 13,
+    ShowLock              = 12, // power-button Lock mode: show Lock, stay awake
+    ScreenOff             = 13,
+    ScreenOn              = 14,
 };
 
 enum class SystemMessage : uint32_t {
@@ -51,7 +52,11 @@ enum class SystemMessage : uint32_t {
     SetManualDateTime     = 33,
     SetInternetTimeSync   = 34,
     SetLockScreen         = 35,
-    SetScreenOffMusic     = 36,
+    // Bluetooth audio device search run by the daemon (the system applet):
+    // btm:sys refuses it from the menu's library applet with 0x4028F.
+    StartAudioDiscovery   = 36,
+    StopAudioDiscovery    = 37,
+    SetScreenOffMusic     = 38,
 
     MenuReady             = 40,
     MenuClosing           = 41,
@@ -104,7 +109,8 @@ static_assert(sizeof(InternetTimeSyncArgs) == 8);
 struct LockScreenArgs {
     uint8_t enabled;
     uint8_t when_docked; // a password locks on the TV too
-    uint8_t _pad[6];
+    uint8_t power_button; // 0=Sleep (stock), 1=Lock only, 2=Lock then Sleep
+    uint8_t _pad[5];
 };
 static_assert(sizeof(LockScreenArgs) == 8);
 

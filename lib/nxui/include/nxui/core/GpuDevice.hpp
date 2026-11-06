@@ -74,11 +74,21 @@ public:
     void endFrame();
     void waitIdle();
 
+    /// Present every `interval` vblanks (1 = 60 Hz, 2 = a steady 30 Hz for an
+    /// idle UI). Free when unchanged; kept across swapchain rebuilds.
+    void setSwapInterval(uint32_t interval);
+
     /// Rebuild the deko3d swapchain after a console sleep. The vi layer's
     /// buffer queue goes stale across sleep and PresentQueue::acquireImage()
     /// blocks forever; dropping and re-creating the swapchain re-establishes it
     /// so the first frame after wake can be presented again.
     void recreateSwapchain();
+
+    /// Close and re-open the default NWindow (same managed layer id), then
+    /// rebuild the swapchain. Used once when a Frame Tap viewer connects so
+    /// setPreallocatedBuffer / queueBuffer go through FT's vi mitm (registered
+    /// ~30s after boot, after SwitchU's first window was already open).
+    void remountDisplayForCaptureMitm();
 
     /// Copy the most recently presented framebuffer into tightly-packed RGBA8.
     /// When halfRes is true, downsamples to FB_WIDTH/2 x FB_HEIGHT/2 via the
@@ -203,6 +213,7 @@ public:
 #endif
 
 private:
+    uint32_t m_swapInterval = 1;
 #ifdef NXUI_BACKEND_DEKO3D
     void createFramebuffers();
     void createDepthStencil();

@@ -3,6 +3,7 @@
 #include <switchu/smi_helpers.hpp>
 #include <switch.h>
 
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <string>
@@ -143,8 +144,24 @@ inline Result setScreenOffMusic(bool wanted, bool spotifyPlaying) {
     return pushOutStorage(buf, sizeof(buf));
 }
 
-// Fire-and-forget: the daemon only mirrors the flag for its wake path.
-inline Result setLockScreen(bool enabled, bool whenDocked) {
+// Start or stop the Bluetooth audio device search from the daemon.
+inline Result setAudioDeviceDiscovery(bool start) {
+    const uint64_t requestId = nextRequestId();
+    const smi::CommandHeader hdr{
+        smi::kCommandMagic,
+        static_cast<uint32_t>(start ? smi::SystemMessage::StartAudioDiscovery
+                                    : smi::SystemMessage::StopAudioDiscovery),
+        requestId,
+    };
+    Result rc = pushOutStorage(&hdr, sizeof(hdr));
+    if (R_FAILED(rc)) return rc;
+
+    return waitForCommandResponse(requestId);
+}
+
+// Fire-and-forget: the daemon only mirrors the flags for its wake and sleep paths.
+// No default for the power button: an int must not slip into whenDocked.
+inline Result setLockScreen(bool enabled, bool whenDocked, int powerButtonAction) {
     uint8_t buf[sizeof(smi::CommandHeader) + sizeof(smi::LockScreenArgs)]{};
     auto* hdr = reinterpret_cast<smi::CommandHeader*>(buf);
     auto* args = reinterpret_cast<smi::LockScreenArgs*>(buf + sizeof(smi::CommandHeader));
@@ -154,6 +171,7 @@ inline Result setLockScreen(bool enabled, bool whenDocked) {
     hdr->request_id = nextRequestId();
     args->enabled = enabled ? 1 : 0;
     args->when_docked = whenDocked ? 1 : 0;
+    args->power_button = static_cast<uint8_t>(std::clamp(powerButtonAction, 0, 2));
     return pushOutStorage(buf, sizeof(buf));
 }
 
