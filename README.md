@@ -61,6 +61,9 @@ El detalle está en `SWITCHU-CHANGES.md` de Switify. En resumen:
   de 2 MiB según se necesita, hasta el mismo máximo. El servicio cuenta contra la
   memoria del sistema, y con 4 MiB fijos abrir HOME sobre un juego podía agotarla:
   el menú se quedaba en negro.
+- **Cuenta como applet** (`application_type: 2` en `switify-sysmodule.json`): su
+  memoria sale del espacio de los applets, junto al menú y el daemon de SwitchU,
+  que tiene decenas de MiB libres, y no de la memoria del sistema.
 - **Errores del CDN**: un hueco en el audio ya no cambia de canción, y una página de
   error del CDN ya no se decodifica como audio.
 
