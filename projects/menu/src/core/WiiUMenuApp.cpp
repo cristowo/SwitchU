@@ -7693,6 +7693,10 @@ void WiiUMenuApp::updateLockScreen(float dt) {
     // Woken by accident (in a bag, say): do not leave the screen on. A connected
     // Frame Tap viewer is someone watching on purpose.
     constexpr float kLockSleepSeconds = 18.f;
+    // "No auto-sleep with music": the lock screen stays lit while it plays; the
+    // count starts once it pauses or stops.
+    if (m_autoSleepDisabled)
+        m_lockIdleTimer = 0.f;
     m_lockIdleTimer += dt;
     if (m_lockScreenActive && m_lockTask == LockTask::Unlock
         // With the option on this only darkens the screen (daemon: enterScreenOff).

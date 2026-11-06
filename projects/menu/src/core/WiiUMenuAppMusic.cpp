@@ -934,7 +934,10 @@ void WiiUMenuApp::pollMusicLink(float dt) {
     if (keepAwake != m_autoSleepDisabled) {
         m_autoSleepDisabled = keepAwake;
         const Result rc = appletSetAutoSleepDisabled(keepAwake);
-        DebugLog::log("[power] auto-sleep %s rc=0x%X", keepAwake ? "off (music)" : "on", rc);
+        // Media playback also keeps the system from dimming the screen.
+        const Result rcMedia = appletSetMediaPlaybackState(keepAwake);
+        DebugLog::log("[power] auto-sleep %s rc=0x%X media=0x%X", keepAwake ? "off (music)" : "on",
+                      rc, rcMedia);
     }
     // Dark and silent is the worst of both: a short grace for a skip, then real sleep.
     constexpr float kDarkSilenceSeconds = 20.f;
