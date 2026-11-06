@@ -1079,10 +1079,12 @@ void QuickSettingsOverlay::syncPlaylistToPlayingTrack(bool center) {
     else
         m_playlistFocus = std::clamp(m_playlistFocus, 0, std::max(0, playlistVisibleCount() - 1));
     // Keep art focus while fullscreen so B returns to the cover selection.
-    if (!m_coverFullscreen) {
+    // A skip from the controls (focus parked there, the list beside) leaves
+    // the cursor on them: only the list follows the song. It jumped into the
+    // list, to its first row with Spotify on shuffle.
+    if (!m_coverFullscreen && !m_playlistFocusParked) {
         m_playlistEyeFocused = false;
         m_playlistArtFocused = false;
-        m_playlistFocusParked = false;
     }
     if (center)
         centerPlaylistFocus();
@@ -1408,8 +1410,7 @@ void QuickSettingsOverlay::activateMusicControl() {
     if (m_callbacks.onActivateSfx) m_callbacks.onActivateSfx();
     if (trackStep && m_playlistOpen)
         syncPlaylistToPlayingTrack(true);
-    else
-        updateCursorTarget();
+    updateCursorTarget();
 }
 
 void QuickSettingsOverlay::setupNavigationActions() {
@@ -1891,8 +1892,7 @@ void QuickSettingsOverlay::setupNavigationActions() {
         syncMusicFromCallbacks();
         if (m_playlistOpen)
             syncPlaylistToPlayingTrack(true);
-        else
-            updateCursorTarget();
+        updateCursorTarget();
     });
     addAction(static_cast<uint64_t>(nxui::Button::ZR), [this]() {
         if (!m_active || m_playlistReorderMode) return;
@@ -1901,8 +1901,7 @@ void QuickSettingsOverlay::setupNavigationActions() {
         syncMusicFromCallbacks();
         if (m_playlistOpen)
             syncPlaylistToPlayingTrack(true);
-        else
-            updateCursorTarget();
+        updateCursorTarget();
     });
     addAction(static_cast<uint64_t>(nxui::Button::R), [this]() {
         if (!m_active || m_playlistReorderMode) return;

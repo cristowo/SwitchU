@@ -107,6 +107,10 @@ public:
     void drawTexture(const Texture* tex, const Rect& dest, const Color& tint = Color::white());
     void drawTextureSub(const Texture* tex, const Rect& src, const Rect& dest, const Color& tint = Color::white());
     void drawTextureRounded(const Texture* tex, const Rect& dest, float radius, const Color& tint = Color::white());
+    // A round cut of a square texture, turned by angle (radians). The circle
+    // mask is symmetric, so only the texture coordinates turn.
+    void drawTextureCircle(const Texture* tex, const Vec2& center, float radius, float angle,
+                           const Color& tint = Color::white());
     void drawTextureSubRounded(const Texture* tex, const Rect& src, const Rect& dest,
                                float radius, const Color& tint = Color::white());
     void drawText(const std::string& text, const Vec2& pos, Font* font, const Color& color, float scale = 1.f);

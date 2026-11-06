@@ -91,10 +91,25 @@ bool AppConfig::load() {
     readJsonOpt(j, "lockScreenEnabled", lockScreenEnabled);
     readJsonOpt(j, "lockSinglePress", lockSinglePress);
     readJsonOpt(j, "lockCascade", lockCascade);
-    readJsonOpt(j, "lockMusic", lockMusic);
+    // Older settings had one switch for both sources.
+    const auto sourcesOf = [&j](const char* key, const char* legacyKey, int& out) {
+        bool legacy = false;
+        readJsonOpt(j, legacyKey, legacy);
+        out = legacy ? kMusicSourceSongs | kMusicSourceSpotify : 0;
+        readJsonOpt(j, key, out);
+        out = std::clamp(out, 0, kMusicSourceSongs | kMusicSourceSpotify);
+    };
+    sourcesOf("lockMusicSources", "lockMusic", lockMusicSources);
     readJsonOpt(j, "lockShapes", lockShapes);
-    readJsonOpt(j, "screenOffMusic", screenOffMusic);
+    sourcesOf("screenOffMusicSources", "screenOffMusic", screenOffMusicSources);
     readJsonOpt(j, "musicKeepsAwake", musicKeepsAwake);
+    {
+        int legacyStyle = 0; // the build before had one style for both
+        readJsonOpt(j, "lockStyle", legacyStyle);
+        lockAlbumSources = legacyStyle == 1 ? kMusicSourceSongs | kMusicSourceSpotify : 0;
+        readJsonOpt(j, "lockAlbumSources", lockAlbumSources);
+        lockAlbumSources = std::clamp(lockAlbumSources, 0, kMusicSourceSongs | kMusicSourceSpotify);
+    }
     readJsonOpt(j, "glassEffects", glassEffects);
     readJsonOpt(j, "lockPicturePath", lockPicturePath);
     readJsonOpt(j, "webClockSyncEnabled", webClockSyncEnabled);
@@ -285,10 +300,11 @@ bool AppConfig::save() const {
     j["lockScreenEnabled"] = lockScreenEnabled;
     j["lockSinglePress"] = lockSinglePress;
     j["lockCascade"] = lockCascade;
-    j["lockMusic"] = lockMusic;
+    j["lockMusicSources"] = lockMusicSources;
     j["lockShapes"] = lockShapes;
-    j["screenOffMusic"] = screenOffMusic;
+    j["screenOffMusicSources"] = screenOffMusicSources;
     j["musicKeepsAwake"] = musicKeepsAwake;
+    j["lockAlbumSources"] = lockAlbumSources;
     j["glassEffects"] = glassEffects;
     j["lockPicturePath"] = lockPicturePath;
     j["webClockSyncEnabled"] = webClockSyncEnabled;

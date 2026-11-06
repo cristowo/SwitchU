@@ -8,6 +8,9 @@
 #include <utility>
 #include <vector>
 
+inline constexpr int kMusicSourceSongs = 1;
+inline constexpr int kMusicSourceSpotify = 2;
+
 struct AppConfig {
     bool  musicEnabled = true;
     float musicVolume  = 0.4f;
@@ -43,12 +46,14 @@ struct AppConfig {
     // Lock screen frosts only the theme's background; icons fall in on unlock.
     bool  lockCascade = false;
     // Music keeps playing on the lock screen, with a card and controls.
-    bool  lockMusic = false;
+    // Per source: bit 0 HOME's own songs, bit 1 Spotify (kMusicSource*).
+    int   lockMusicSources = 0;
     // The theme's moving shapes, sharp over the lock screen's frost.
     bool  lockShapes = false;
     // Sleep requests only turn the backlight off while music plays.
-    bool  screenOffMusic = false;
+    int   screenOffMusicSources = 0;
     bool  musicKeepsAwake = true; // no auto-sleep while music plays
+    int   lockAlbumSources = 0;   // the album lock screen: cover, spinning record
     // Off: frosted panels without the shader glass or blur.
     bool  glassEffects = true;
     // Lock screen picture; empty means what is on screen, frosted.

@@ -304,10 +304,11 @@ void WiiUMenuApp::createSettings() {
     m_settings->setLockPasswordState(m_lockPasswordSet);
     m_settings->setLockSinglePressState(m_config.lockSinglePress);
     m_settings->setLockCascadeState(m_config.lockCascade);
-    m_settings->setLockMusicState(m_config.lockMusic);
+    m_settings->setLockMusicState(m_config.lockMusicSources);
     m_settings->setLockShapesState(m_config.lockShapes);
-    m_settings->setScreenOffMusicState(m_config.screenOffMusic);
+    m_settings->setScreenOffMusicState(m_config.screenOffMusicSources);
     m_settings->setMusicKeepsAwakeState(m_config.musicKeepsAwake);
+    m_settings->setLockStyleState(m_config.lockAlbumSources);
     m_settings->setGlassEffectsState(m_config.glassEffects);
     m_settings->setLockPictureState(m_config.lockPicturePath);
     m_settings->setWebClockSyncState(m_config.webClockSyncEnabled);
@@ -396,17 +397,20 @@ void WiiUMenuApp::createSettings() {
     m_settings->onLockCascadeChange([this](bool enabled) {
         m_config.lockCascade = enabled;
     });
-    m_settings->onLockMusicChange([this](bool enabled) {
-        m_config.lockMusic = enabled;
+    m_settings->onLockMusicChange([this](int sources) {
+        m_config.lockMusicSources = sources;
     });
     m_settings->onLockShapesChange([this](bool enabled) {
         m_config.lockShapes = enabled;
     });
-    m_settings->onScreenOffMusicChange([this](bool enabled) {
-        m_config.screenOffMusic = enabled;
+    m_settings->onScreenOffMusicChange([this](int sources) {
+        m_config.screenOffMusicSources = sources;
     });
     m_settings->onMusicKeepsAwakeChange([this](bool enabled) {
         m_config.musicKeepsAwake = enabled;
+    });
+    m_settings->onLockStyleChange([this](int sources) {
+        m_config.lockAlbumSources = sources;
     });
     m_settings->onGlassEffectsChange([this](bool enabled) {
         m_config.glassEffects = enabled;

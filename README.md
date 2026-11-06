@@ -47,7 +47,12 @@ Todo el trabajo original pertenece a sus autores. Estos forks mantienen sus lice
   biblioteca; con Más pasas a la siguiente o la anterior, y con A suena ahí
   mismo, sin abrir los Ajustes rápidos.
 - **Pantalla de bloqueo** al despertar, con contraseña opcional, controles de música
-  y barras de espectro. Muestra "Reconectando..." mientras Spotify vuelve.
+  y barras de espectro. Muestra "Reconectando..." mientras Spotify vuelve. Con
+  "Carátula en la pantalla de bloqueo", la funda del álbum ocupa el centro con un
+  disco que asoma y gira en los dos colores principales del álbum, la hora pasa
+  arriba a la izquierda y las barras van debajo. La música, la carátula y la
+  música con la pantalla apagada se eligen por separado para las canciones del
+  menú y para Spotify.
 - **Al encender la consola** suena la música del tema desde su canción de HOME
   ("Wii U Home Menu"), aunque lo último haya sido Spotify.
 - **Sin suspensión automática con música** (Ajustes, Suspensión; activada por
@@ -77,6 +82,8 @@ El detalle está en `SWITCHU-CHANGES.md` de Switify. En resumen:
   `SwitifyStatusFlag_Reloading` (bit 8) mientras tanto.
 - **Conexión al CDN más robusta**: una respuesta que no sea el rango pedido cierra
   la conexión y abre otra, en vez de arruinar las siguientes y cambiar de canción.
+- **Cambiar rápido de canción ya no lo cierra**: una respuesta de Spotify para una
+  canción ya saltada se descarta, en vez de escribir en memoria liberada.
 - **Memoria a demanda**: el heap ya no es un bloque fijo de 4 MiB. Se toma en pasos
   de 2 MiB según se necesita, hasta el mismo máximo. El servicio cuenta contra la
   memoria del sistema, y con 4 MiB fijos abrir HOME sobre un juego podía agotarla:

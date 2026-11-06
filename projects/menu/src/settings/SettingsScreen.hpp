@@ -31,10 +31,11 @@ public:
     void onLockScreenChange(BoolCb cb) { m_lockScreenCb = std::move(cb); }
     void onLockSinglePressChange(BoolCb cb) { m_lockSinglePressCb = std::move(cb); }
     void onLockCascadeChange(BoolCb cb) { m_lockCascadeCb = std::move(cb); }
-    void onLockMusicChange(BoolCb cb) { m_lockMusicCb = std::move(cb); }
+    void onLockMusicChange(IntCb cb) { m_lockMusicCb = std::move(cb); }
     void onLockShapesChange(BoolCb cb) { m_lockShapesCb = std::move(cb); }
-    void onScreenOffMusicChange(BoolCb cb) { m_screenOffMusicCb = std::move(cb); }
+    void onScreenOffMusicChange(IntCb cb) { m_screenOffMusicCb = std::move(cb); }
     void onMusicKeepsAwakeChange(BoolCb cb) { m_musicKeepsAwakeCb = std::move(cb); }
+    void onLockStyleChange(IntCb cb) { m_lockStyleCb = std::move(cb); }
     void onGlassEffectsChange(BoolCb cb) { m_glassEffectsCb = std::move(cb); }
     void onLockPictureChange(StringCb cb) { m_lockPictureCb = std::move(cb); }
     void onLockPasswordAction(VoidCb cb) { m_lockPasswordCb = std::move(cb); }
@@ -94,10 +95,12 @@ public:
     void setLockPasswordState(bool set) { m_lockPasswordSet = set; }
     void setLockSinglePressState(bool enabled) { m_lockSinglePress = enabled; }
     void setLockCascadeState(bool enabled) { m_lockCascade = enabled; }
-    void setLockMusicState(bool enabled) { m_lockMusic = enabled; }
+    // Source masks (kMusicSource*): checklists of HOME's songs and Spotify.
+    void setLockMusicState(int sources) { m_lockMusic = sources; }
     void setLockShapesState(bool enabled) { m_lockShapes = enabled; }
-    void setScreenOffMusicState(bool enabled) { m_screenOffMusic = enabled; }
+    void setScreenOffMusicState(int sources) { m_screenOffMusic = sources; }
     void setMusicKeepsAwakeState(bool enabled) { m_musicKeepsAwake = enabled; }
+    void setLockStyleState(int style) { m_lockStyle = style; }
     void setGlassEffectsState(bool enabled) { m_glassEffects = enabled; }
     void setLockPictureState(const std::string& path) { m_lockPicturePath = path; }
     void setWebClockSyncState(bool enabled) {
@@ -169,10 +172,11 @@ private:
     BoolCb m_lockScreenCb;
     BoolCb m_lockSinglePressCb;
     BoolCb m_lockCascadeCb;
-    BoolCb m_lockMusicCb;
+    IntCb m_lockMusicCb;
     BoolCb m_lockShapesCb;
-    BoolCb m_screenOffMusicCb;
+    IntCb m_screenOffMusicCb;
     BoolCb m_musicKeepsAwakeCb;
+    IntCb m_lockStyleCb;
     BoolCb m_glassEffectsCb;
     StringCb m_lockPictureCb;
     VoidCb m_lockPasswordCb;
@@ -209,10 +213,11 @@ private:
     bool m_lockPasswordSet = false;
     bool m_lockSinglePress = false;
     bool m_lockCascade = false;
-    bool m_lockMusic = false;
+    int m_lockMusic = 0;
     bool m_lockShapes = false;
-    bool m_screenOffMusic = false;
+    int m_screenOffMusic = 0;
     bool m_musicKeepsAwake = true;
+    int m_lockStyle = 0;
     bool m_glassEffects = true;
     std::string m_lockPicturePath;
     bool m_webClockSyncEnabled = false;

@@ -220,6 +220,11 @@
       "screen_off_music_desc": "En HOME y en modo portátil: mientras suena música, el botón de encendido solo apaga la pantalla. La consola sigue activa y gasta más batería que suspendida.",
       "music_keeps_awake": "Sin suspensión automática con música",
       "music_keeps_awake_desc": "En HOME y en la pantalla de bloqueo: mientras suena música, la consola no se suspende sola. Con el botón de encendido sí.",
+      "source_songs": "Canciones del menú",
+      "source_spotify": "Spotify",
+      "lock_album": "Carátula en la pantalla de bloqueo",
+      "lock_album_desc": "Mientras suena, la carátula de la canción ocupa el centro de la pantalla de bloqueo, con un disco girando y las barras debajo. No con contraseña, que necesita el centro.",
+      "lock_more": "Pantalla de bloqueo",
       "lock_shapes": "Tema animado en el bloqueo",
       "lock_shapes_desc": "Muestra las formas animadas del tema, como sus luciérnagas, en el bloqueo. Gasta algo más de batería."
     },

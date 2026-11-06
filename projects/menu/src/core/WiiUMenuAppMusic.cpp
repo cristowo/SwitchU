@@ -11,7 +11,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <nxui/core/I18n.hpp>
+#include <nxui/third_party/stb/stb_image.h>
 
 namespace sw = switchu::switify;
 
@@ -48,6 +50,41 @@ std::string clockText(float seconds) {
 }
 
 // "1:23 / 4:50" and how far along, for the 2x2 widget.
+// The two main colours of a cover: its pixels sampled into coarse bins, the
+// most weighty bin first (colourful ones weigh more than greys), then the
+// weightiest one clearly unlike it. One pass over a few hundred pixels.
+void coverColours(const std::uint8_t* rgba, std::size_t pixels, nxui::Color& first,
+                  nxui::Color& second) {
+    struct Bin { float r = 0, g = 0, b = 0, weight = 0; int count = 0; };
+    Bin bins[64];
+    const std::size_t step = std::max<std::size_t>(1, pixels / 256);
+    for (std::size_t i = 0; i < pixels; i += step) {
+        const float r = rgba[i * 4] / 255.f, g = rgba[i * 4 + 1] / 255.f, b = rgba[i * 4 + 2] / 255.f;
+        const float hi = std::max({r, g, b}), lo = std::min({r, g, b});
+        float weight = 0.3f + (hi > 0.f ? (hi - lo) / hi : 0.f);
+        if (hi < 0.08f || lo > 0.92f) weight *= 0.3f; // near black or white
+        auto& bin = bins[(static_cast<int>(r * 3.99f) << 4) | (static_cast<int>(g * 3.99f) << 2) |
+                         static_cast<int>(b * 3.99f)];
+        bin.r += r; bin.g += g; bin.b += b; bin.weight += weight; ++bin.count;
+    }
+    const auto colour = [](const Bin& bin) {
+        return nxui::Color(bin.r / bin.count, bin.g / bin.count, bin.b / bin.count, 1.f);
+    };
+    int best = -1, next = -1;
+    for (int i = 0; i < 64; ++i)
+        if (bins[i].count && (best < 0 || bins[i].weight > bins[best].weight)) best = i;
+    if (best < 0) return;
+    first = colour(bins[best]);
+    for (int i = 0; i < 64; ++i) {
+        if (!bins[i].count || i == best) continue;
+        const nxui::Color c = colour(bins[i]);
+        const float apart = std::fabs(c.r - first.r) + std::fabs(c.g - first.g) + std::fabs(c.b - first.b);
+        if (apart > 0.35f && (next < 0 || bins[i].weight > bins[next].weight)) next = i;
+    }
+    second = next >= 0 ? colour(bins[next])
+                       : nxui::Color(first.r * 0.5f, first.g * 0.5f, first.b * 0.5f, 1.f);
+}
+
 template <class View>
 void setProgress(View& view, float position, float duration) {
     if (duration <= 0.f) return;
@@ -562,6 +599,42 @@ void WiiUMenuApp::refreshNowPlayingWidgets(const NowPlayingView& view) {
         }
         m_nowPlayingCover = std::move(cover);
         m_nowPlayingCoverKey = view.coverKey;
+
+        // The record on the album lock screen wears the album's two main
+        // colours. Switify's covers come decoded; a song's own cover is decoded
+        // once for it, and only when that lock screen can show it. Without a
+        // cover, two colours of the song's own.
+        m_lockDiscSeed = static_cast<std::uint32_t>(std::hash<std::string>{}(view.coverKey));
+        const auto hueColour = [](float degrees) {
+            const float hue = std::fmod(degrees, 360.f) / 60.f;
+            const float c = 0.75f, x = c * (1.f - std::fabs(std::fmod(hue, 2.f) - 1.f));
+            const float rgb[6][3] = {{c, x, 0}, {x, c, 0}, {0, c, x}, {0, x, c}, {x, 0, c}, {c, 0, x}};
+            const auto& h = rgb[static_cast<int>(hue) % 6];
+            return nxui::Color(0.2f + h[0], 0.2f + h[1], 0.2f + h[2], 1.f);
+        };
+        m_lockDiscColor = hueColour(static_cast<float>(m_lockDiscSeed % 360u));
+        m_lockDiscColor2 = hueColour(static_cast<float>(m_lockDiscSeed % 360u) + 150.f);
+        if (const auto decoded = m_switify.cover();
+            decoded && decoded->key == view.coverKey && !decoded->rgba.empty()) {
+            coverColours(decoded->rgba.data(), decoded->rgba.size() / 4,
+                         m_lockDiscColor, m_lockDiscColor2);
+        } else if (view.coverKey.rfind("local:", 0) == 0 &&
+                   (m_config.lockAlbumSources & kMusicSourceSongs)) {
+            const std::vector<uint8_t>* bytes = &m_audio.currentCoverArt();
+            const int index = m_audio.currentIndex();
+            if (bytes->empty() && index >= 0 && index < m_audio.trackCount())
+                bytes = m_audio.folderCoverArt(
+                    m_audio.tracks()[static_cast<std::size_t>(index)].albumFolder);
+            int width = 0, height = 0, channels = 0;
+            if (bytes && !bytes->empty()) {
+                if (stbi_uc* pixels = stbi_load_from_memory(bytes->data(), static_cast<int>(bytes->size()),
+                                                            &width, &height, &channels, 4)) {
+                    coverColours(pixels, static_cast<std::size_t>(width) * height,
+                                 m_lockDiscColor, m_lockDiscColor2);
+                    stbi_image_free(pixels);
+                }
+            }
+        }
     }
     m_nowPlayingView = view;
     forEachWidget([this](GlossyIcon& icon) { applyNowPlayingWidget(icon); });
@@ -625,6 +698,9 @@ void WiiUMenuApp::updateMusicBars(float dt) {
         onScreen = false;
 
     m_spotifyReconnecting = std::max(0.f, m_spotifyReconnecting - dt);
+    // Slowly, while it plays.
+    if (m_lockScreenActive && m_lockMusicPlaying)
+        m_lockDiscAngle = std::fmod(m_lockDiscAngle + dt * 1.9f, 6.2831853f); // ~18 rpm
     const bool local = !spotifySource();
     const bool playing = onScreen && (local ? m_audio.isPlaying() : m_switify.nowPlaying().playing);
     m_audio.setSpectrumEnabled(onScreen && local);
@@ -655,7 +731,13 @@ void WiiUMenuApp::updateMusicBars(float dt) {
     }
 }
 
-void WiiUMenuApp::renderLockMusic(nxui::Renderer& ren, float y, float a) {
+bool WiiUMenuApp::lockAlbumStyle() const {
+    // A password's prompt and dots need the middle: classic there.
+    return (m_config.lockAlbumSources & activeMusicSource()) != 0 && m_lockMusicShown &&
+           !(usingLockPassword() && m_lockTask != LockTask::Preview);
+}
+
+void WiiUMenuApp::renderLockMusic(nxui::Renderer& ren, float y, float a, bool album) {
     constexpr float kW = 1280.f;
     constexpr float kMargin = 44.f;
     constexpr float kRowTop = 622.f;
@@ -663,10 +745,79 @@ void WiiUMenuApp::renderLockMusic(nxui::Renderer& ren, float y, float a) {
     const nxui::Color ink(1.f, 1.f, 1.f, a);
     const nxui::Color soft(1.f, 1.f, 1.f, 0.72f * a);
 
+    if (album) {
+        // The sleeve in the middle, a record half out of it. The record is
+        // the album's two main colours, split, so its turning shows.
+        constexpr float kSide = 290.f;
+        const nxui::Rect art{kW * 0.5f - kSide * 0.72f, 300.f - kSide * 0.5f + y, kSide, kSide};
+        const float discR = kSide * 0.47f;
+        const nxui::Vec2 dc{art.x + kSide * 0.5f + kSide * 0.44f, art.y + kSide * 0.5f};
+        const nxui::Color one = m_lockDiscColor, two = m_lockDiscColor2;
+        // The album's colour as a soft glow behind it all.
+        ren.drawCircle({kW * 0.5f, art.y + kSide * 0.5f}, kSide * 0.95f, one.withAlpha(0.06f * a), 72);
+        ren.drawCircle({kW * 0.5f, art.y + kSide * 0.5f}, kSide * 0.75f, two.withAlpha(0.06f * a), 72);
+        ren.drawCircle({dc.x + 4.f, dc.y + 8.f}, discR, nxui::Color(0.f, 0.f, 0.f, 0.40f * a), 72);
+        // Two halves, turning: a fan of thin slices each.
+        constexpr int kSlices = 36;
+        constexpr float kPi = 3.14159265f;
+        for (int i = 0; i < kSlices * 2; ++i) {
+            const float t0 = m_lockDiscAngle + kPi * static_cast<float>(i) / kSlices;
+            const float t1 = t0 + kPi / kSlices;
+            const nxui::Color& c = i < kSlices ? one : two;
+            ren.drawTriangle(dc, {dc.x + std::cos(t0) * discR, dc.y + std::sin(t0) * discR},
+                             {dc.x + std::cos(t1) * discR, dc.y + std::sin(t1) * discR},
+                             nxui::Color(c.r * 0.85f, c.g * 0.85f, c.b * 0.85f, a));
+        }
+        // Grooves pressed in: faint dark rings, the song's own spacing.
+        const int rings = 5 + static_cast<int>(m_lockDiscSeed % 3u);
+        for (int ring = 0; ring < rings; ++ring) {
+            const float r = discR * (0.93f - 0.095f * static_cast<float>(ring)
+                                     - static_cast<float>((m_lockDiscSeed >> (ring * 3)) % 4u) * 0.006f);
+            ren.drawRoundedRectOutline({dc.x - r, dc.y - r, r * 2.f, r * 2.f},
+                                       nxui::Color(0.f, 0.f, 0.f, 0.20f * a), r, 1.2f);
+        }
+        // The lamp's reflection stays put while the record turns under it.
+        for (const float centre : {-2.25f, 0.89f}) {
+            constexpr int kWedge = 6;
+            constexpr float kSpread = 0.40f;
+            for (int i = 0; i < kWedge; ++i) {
+                const float t0 = centre - kSpread + kSpread * 2.f * static_cast<float>(i) / kWedge;
+                const float t1 = t0 + kSpread * 2.f / kWedge;
+                const float edge = 1.f - std::fabs((static_cast<float>(i) + 0.5f) / kWedge - 0.5f) * 2.f;
+                const nxui::Color light(1.f, 1.f, 1.f, 0.10f * edge * a);
+                const auto at = [&](float t, float r) {
+                    return nxui::Vec2{dc.x + std::cos(t) * discR * r, dc.y + std::sin(t) * discR * r};
+                };
+                ren.drawTriangle(at(t0, 0.34f), at(t0, 0.97f), at(t1, 0.97f), light);
+                ren.drawTriangle(at(t0, 0.34f), at(t1, 0.97f), at(t1, 0.34f), light);
+            }
+        }
+        ren.drawRoundedRectOutline({dc.x - discR, dc.y - discR, discR * 2.f, discR * 2.f},
+                                   nxui::Color(1.f, 1.f, 1.f, 0.12f * a), discR, 1.5f);
+        // The label: paper white, ringed in the first colour, a mark in the
+        // second riding round with it, then the spindle hole.
+        ren.drawCircle(dc, discR * 0.30f, one.withAlpha(a), 48);
+        ren.drawCircle(dc, discR * 0.26f, nxui::Color(0.94f, 0.93f, 0.90f, a), 48);
+        ren.drawCircle({dc.x + std::cos(m_lockDiscAngle) * discR * 0.17f,
+                        dc.y + std::sin(m_lockDiscAngle) * discR * 0.17f},
+                       discR * 0.04f, two.withAlpha(a), 16);
+        ren.drawCircle(dc, discR * 0.035f, nxui::Color(0.05f, 0.05f, 0.06f, a), 16);
+
+        // The sleeve over it, with a shadow.
+        ren.drawRoundedRect({art.x + 6.f, art.y + 10.f, art.width, art.height},
+                            nxui::Color(0.f, 0.f, 0.f, 0.40f * a), 14.f);
+        if (m_nowPlayingCover && m_nowPlayingCover->valid())
+            ren.drawTextureRounded(m_nowPlayingCover.get(), art, 12.f, ink);
+        else
+            ren.drawRoundedRect(art, one.withAlpha(0.6f * a), 12.f);
+    }
+
     // The bars, between the date and the dots; a password's prompt and dots sit
-    // lower, so there they stay above it (look from HomeNX).
+    // lower, so there they stay above it (look from HomeNX). Under the cover in
+    // the album style.
     constexpr float kBarsW = 620.f;
-    const float kBarsBase = usingLockPassword() && m_lockTask != LockTask::Preview ? 392.f : 490.f;
+    const float kBarsBase = album ? 552.f
+        : (usingLockPassword() && m_lockTask != LockTask::Preview ? 392.f : 490.f);
     constexpr int kBands = SpectrumAnalyzer::kBands;
     const float step = kBarsW / static_cast<float>(kBands);
     const float barW = step * 0.6f;
@@ -674,7 +825,7 @@ void WiiUMenuApp::renderLockMusic(nxui::Renderer& ren, float y, float a) {
     const bool hasBars = !spotifySource() || m_switify.levelsAvailable();
     for (int i = 0; i < kBands && hasBars; ++i) {
         const float v = m_musicBars[static_cast<std::size_t>(i)];
-        const float h = 3.f + 60.f * v;
+        const float h = 3.f + (album ? 48.f : 60.f) * v;
         const float x = (kW - kBarsW) * 0.5f + step * static_cast<float>(i) + step * 0.2f;
         ren.drawRoundedRect({x, kBarsBase + y - h, barW, h},
                             nxui::Color(1.f, 1.f, 1.f, (0.35f + 0.5f * v) * a), barW * 0.5f);
@@ -688,19 +839,21 @@ void WiiUMenuApp::renderLockMusic(nxui::Renderer& ren, float y, float a) {
             "lockscreen.music_reconnecting", "Reconnecting...");
         // The countdown runs every frame, so it doubles as the blink's clock.
         const float blink = 0.5f + 0.5f * std::cos(m_spotifyReconnecting * 2.f * 3.14159265f);
-        ren.drawText(waiting, {kMargin, 28.f + y}, &m_fontSmall,
+        ren.drawText(waiting, {kMargin, (album ? 118.f : 28.f) + y}, &m_fontSmall,
                      nxui::Color(1.f, 1.f, 1.f, (0.25f + 0.65f * blink) * a));
     }
 
     // The song, bottom right: name and band, then the cover.
     constexpr float kCover = 56.f;
     const nxui::Rect cover{kW - kMargin - kCover, kRowTop + y, kCover, kCover};
-    if (m_nowPlayingCover && m_nowPlayingCover->valid())
-        ren.drawTextureRounded(m_nowPlayingCover.get(), cover, 8.f, ink);
-    else
-        ren.drawRoundedRect(cover, nxui::Color(1.f, 1.f, 1.f, 0.10f * a), 8.f);
+    if (!album) {
+        if (m_nowPlayingCover && m_nowPlayingCover->valid())
+            ren.drawTextureRounded(m_nowPlayingCover.get(), cover, 8.f, ink);
+        else
+            ren.drawRoundedRect(cover, nxui::Color(1.f, 1.f, 1.f, 0.10f * a), 8.f);
+    }
     constexpr float kTextW = 300.f;
-    const float textRight = cover.x - 12.f;
+    const float textRight = album ? kW - kMargin : cover.x - 12.f;
     const auto songLine = [&](const std::string& text, float top, const nxui::Color& color) {
         const float width = m_fontSmall.measure(text).x;
         const float scale = width > kTextW ? std::max(0.6f, kTextW / width) : 1.f;
@@ -766,8 +919,9 @@ void WiiUMenuApp::pollMusicLink(float dt) {
 
 #ifdef SWITCHU_MENU
     // Staying awake for the music is the opposite of what Battery Saver is for.
-    const bool screenOffWanted = m_config.screenOffMusic && !m_config.batterySaver
-        && (now.playing || m_audio.isPlaying());
+    const bool screenOffWanted = !m_config.batterySaver
+        && ((now.playing && (m_config.screenOffMusicSources & kMusicSourceSpotify)) ||
+            (m_audio.isPlaying() && (m_config.screenOffMusicSources & kMusicSourceSongs)));
     const int linkState = (screenOffWanted ? 1 : 0) | (now.playing ? 2 : 0);
     if (linkState != m_screenOffWantedSent) {
         m_screenOffWantedSent = linkState;

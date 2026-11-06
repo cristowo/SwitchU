@@ -372,6 +372,13 @@ void Renderer::drawTextureSub(const Texture* tex, const Rect& src, const Rect& d
     SDL_RenderCopy(m_gpu.sdlRenderer(), sdlTex, &sr, &dr);
 }
 
+// ponytail: unturned on the PC build; the console's renderer turns it.
+void Renderer::drawTextureCircle(const Texture* tex, const Vec2& center, float radius,
+                                 float, const Color& tint) {
+    drawTextureRounded(tex, {center.x - radius, center.y - radius, radius * 2.f, radius * 2.f},
+                       radius, tint);
+}
+
 void Renderer::drawTextureRounded(const Texture* tex, const Rect& dest, float radius, const Color& tint) {
     if (!tex) return;
     drawTextureSubRounded(tex,

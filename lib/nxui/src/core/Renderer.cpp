@@ -868,6 +868,24 @@ void Renderer::drawTextureRounded(const Texture* tex, const Rect& dest, float ra
                       tint, Rect{0.f, 0.f, 1.f, 1.f});
 }
 
+void Renderer::drawTextureCircle(const Texture* tex, const Vec2& center, float radius,
+                                 float angle, const Color& tint) {
+    if (!tex || radius <= 0.f) return;
+    bindTexture(tex->descriptorSlot());
+    const Rect box{center.x - radius, center.y - radius, radius * 2.f, radius * 2.f};
+    beginShape(box, radius, 0.f);
+    if (m_vtxCount + 6 > GpuDevice::MAX_VERTICES) flush();
+    // The picture turns by +angle: each corner samples it turned back by angle.
+    const float c = std::cos(angle) * 0.5f, s = std::sin(angle) * 0.5f;
+    const auto corner = [&](float dx, float dy) {
+        addVertex(center.x + dx * radius, center.y + dy * radius,
+                  0.5f + c * dx + s * dy, 0.5f - s * dx + c * dy, tint);
+    };
+    corner(-1.f, -1.f); corner(1.f, -1.f); corner(1.f, 1.f);
+    corner(-1.f, -1.f); corner(1.f, 1.f); corner(-1.f, 1.f);
+    endShape();
+}
+
 void Renderer::drawTextureSubRounded(const Texture* tex, const Rect& src,
                                      const Rect& dest, float radius,
                                      const Color& tint) {

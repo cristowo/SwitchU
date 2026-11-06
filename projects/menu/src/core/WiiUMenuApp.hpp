@@ -245,13 +245,20 @@ private:
     void requestSwitifyPlayback();
     void pollMusicLink(float dt);
     // HOME's songs stay off over a suspended title; Spotify is not HOME's.
-    bool lockMusicOn() const { return m_config.lockMusic || m_config.screenOffMusic; }
-    bool lockAllowsLocalMusic() const { return lockMusicOn() && !m_lockGameBackdrop; }
+    int activeMusicSource() const { return spotifySource() ? kMusicSourceSpotify : kMusicSourceSongs; }
+    bool lockMusicFor(int source) const {
+        return ((m_config.lockMusicSources | m_config.screenOffMusicSources) & source) != 0;
+    }
+    bool lockMusicOn() const { return lockMusicFor(activeMusicSource()); }
+    bool lockAllowsLocalMusic() const { return lockMusicFor(kMusicSourceSongs) && !m_lockGameBackdrop; }
+    bool screenOffMusicOn() const { return (m_config.screenOffMusicSources & activeMusicSource()) != 0; }
     void updateLockMusic();
     void resumeSpotifyAfterSleep();
     // Measures the music only while bars are on screen (lock or widget).
     void updateMusicBars(float dt);
-    void renderLockMusic(nxui::Renderer& ren, float y, float a);
+    // album: the cover in the middle with a record behind it (lockAlbumSources).
+    void renderLockMusic(nxui::Renderer& ren, float y, float a, bool album);
+    bool lockAlbumStyle() const;
     void enterScreenOff();
     void leaveScreenOff();
     // Thumbnail atlases (WiiUMenuAppThumbs.cpp).
@@ -828,6 +835,12 @@ private:
     bool m_lockMusicKeep = false; // paused from the lock: its controls must stay
     std::array<float, SpectrumAnalyzer::kBands> m_musicBars{};
     PlaylistShelf m_playlistShelf;
+    float m_lockDiscAngle = 0.f; // the album lock screen's record, turning
+    // Its look for the song on: the label's colour (the cover's, else one of
+    // its own) and how its grooves fall. Set once per song.
+    nxui::Color m_lockDiscColor{0.9f, 0.3f, 0.3f, 1.f};  // the album's main colour
+    nxui::Color m_lockDiscColor2{0.3f, 0.3f, 0.9f, 1.f}; // and its second
+    std::uint32_t m_lockDiscSeed = 0;
     // Backlight off, console awake, music playing (daemon: enterScreenOff).
     bool m_screenOff = false;
     float m_screenOffSilence = 0.f;

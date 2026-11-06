@@ -7697,7 +7697,7 @@ void WiiUMenuApp::updateLockScreen(float dt) {
     if (m_lockScreenActive && m_lockTask == LockTask::Unlock
         // With the option on this only darkens the screen (daemon: enterScreenOff).
         // Battery Saver prefers real sleep, even if that pauses the music.
-        && (!m_lockMusicPlaying || m_config.screenOffMusic || m_config.batterySaver)
+        && (!m_lockMusicPlaying || screenOffMusicOn() || m_config.batterySaver)
         && m_lockIdleTimer >= kLockSleepSeconds) {
         m_lockIdleTimer = 0.f;
 #ifdef SWITCHU_MENU
@@ -7929,18 +7929,27 @@ void WiiUMenuApp::renderLockScreen(nxui::Renderer& ren) {
         ren.drawText(pct, {bx - 10.f - ps.x, by + (bh - ps.y) * 0.5f}, &m_fontSmall, ink);
     }
 
-    // Clock + date.
+    // Clock + date. The album style gives the middle to the record: the clock
+    // goes to the top left, like a phone's, with the date under it.
+    const bool album = lockAlbumStyle();
     nxui::Font* big = m_fontLock.ptSize() > 0 ? &m_fontLock : &m_fontNormal;
-    const float bigScale = big == &m_fontLock ? 1.f : 3.f;
+    const float bigScale = (big == &m_fontLock ? 1.f : 3.f) * (album ? 0.55f : 1.f);
     const nxui::Vec2 ts = big->measure(m_lockTimeStr);
-    const float timeY = 210.f - ts.y * bigScale * 0.5f + y;
-    ren.drawText(m_lockTimeStr, {(kW - ts.x * bigScale) * 0.5f, timeY}, big, ink, bigScale);
-    const nxui::Vec2 ds = m_fontNormal.measure(m_lockDateStr);
-    ren.drawText(m_lockDateStr, {(kW - ds.x) * 0.5f, timeY + ts.y * bigScale + 6.f},
-                 &m_fontNormal, soft);
+    if (album) {
+        constexpr float kLeft = 44.f;
+        const float timeY = 26.f + y;
+        ren.drawText(m_lockTimeStr, {kLeft, timeY}, big, ink, bigScale);
+        ren.drawText(m_lockDateStr, {kLeft + 2.f, timeY + ts.y * bigScale + 2.f}, &m_fontSmall, soft);
+    } else {
+        const float timeY = 210.f - ts.y * bigScale * 0.5f + y;
+        ren.drawText(m_lockTimeStr, {(kW - ts.x * bigScale) * 0.5f, timeY}, big, ink, bigScale);
+        const nxui::Vec2 ds = m_fontNormal.measure(m_lockDateStr);
+        ren.drawText(m_lockDateStr, {(kW - ds.x) * 0.5f, timeY + ts.y * bigScale + 6.f},
+                     &m_fontNormal, soft);
+    }
 
     if (m_lockMusicShown)
-        renderLockMusic(ren, y, a);
+        renderLockMusic(ren, y, a, album);
 
     const std::string prompt = lockPromptText();
     const nxui::Vec2 ps = m_fontNormal.measure(prompt);
@@ -8575,7 +8584,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
                     m_audio.play();
                 m_musicWasPlayingBeforeSleep = false;
             }
-            if (!m_lockScreenActive || lockMusicOn())
+            if (!m_lockScreenActive || lockMusicFor(kMusicSourceSpotify))
                 resumeSpotifyAfterSleep();
         } else if (step == 1) {
             DebugLog::log("[power] wake step: cursor");
