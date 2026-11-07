@@ -1376,6 +1376,16 @@ static void handleAppletMessages() {
         // (32 is not a request a dark screen should refuse.)
         if (msg != 32 && enterScreenOff("applet-sleep"))
             break;
+        // Power button set to "Lock only": over HOME the press shows the lock
+        // and the console stays awake; a press on the lock sleeps (the menu
+        // decides, it knows whether it is locked). Not refusing the request is
+        // enough to stay awake, as the dark screen above shows.
+        if (msg == 22 && g_powerButtonAction == 1 && g_lockScreenEnabled
+            && daemon::menu_la::isActive() && !g_foregroundAppletActive) {
+            switchu::FileLog::log("[power] power button: lock only");
+            pushNotification(smi::MenuMessage::ShowLock);
+            break;
+        }
         if (g_pendingHomeMenuLaunch) {
             // A HOME still waiting for the foreground must not survive sleep:
             // after wake the app resumes and a fresh HOME press starts over.
@@ -1388,8 +1398,7 @@ static void handleAppletMessages() {
         // but must reacquire the foreground after wake. Keep our session state
         // in sync so the Wakeup path is allowed to call app::resume().
         daemon::app::onHomeSuspend();
-        // Horizon has already committed to sleep on these messages — we cannot
-        // remap Power to Lock-only. Handoff Lock when enabled, then sleep.
+        // The menu shows its lock on the way down when enabled, then sleep.
         startSleepSequence("applet-sleep");
         break;
 

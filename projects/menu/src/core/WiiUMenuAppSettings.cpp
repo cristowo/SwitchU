@@ -387,6 +387,11 @@ void WiiUMenuApp::createSettings() {
         if (m_config.lockScreenEnabled == enabled)
             return;
         m_config.lockScreenEnabled = enabled;
+        // The same switch is in the Theme Shop and gates Lock in Quick Settings.
+        if (m_quickSettings)
+            m_quickSettings->setLockScreenEnabled(enabled);
+        if (m_themeShop)
+            m_themeShop->setLockScreenState(enabled);
 #ifdef SWITCHU_MENU
         switchu::menu::smi_cmd::setLockScreen(enabled, m_lockPasswordSet, m_config.powerButtonAction);
 #endif
@@ -2163,6 +2168,8 @@ void WiiUMenuApp::createThemeShop() {
         m_config.save();
         if (m_quickSettings)
             m_quickSettings->setLockScreenEnabled(enabled);
+        if (m_settings)
+            m_settings->setLockScreenState(enabled);
 #ifdef SWITCHU_MENU
         switchu::menu::smi_cmd::setLockScreen(enabled, m_lockPasswordSet, m_config.powerButtonAction);
 #endif
@@ -2240,7 +2247,7 @@ void WiiUMenuApp::createThemeShop() {
         syncColourIconContrast();
     });
     m_themeShop->onLockScreenTransitionChange([this](int mode) {
-        mode = std::clamp(mode, 0, 3);
+        mode = std::clamp(mode, 0, 4);
         if (m_config.lockScreenTransition == mode)
             return;
         m_config.lockScreenTransition = mode;

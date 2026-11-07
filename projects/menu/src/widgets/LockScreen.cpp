@@ -27,6 +27,7 @@ constexpr float kZoomEnterSec = 0.78f;
 constexpr float kZoomExitSec = 0.78f;
 constexpr float kWipeEnterSec = 0.72f;
 constexpr float kWipeExitSec = 0.72f;
+constexpr float kClassicExitSec = 0.25f;
 constexpr float kEnterAnimDelay = 0.05f;  // hitch after hiding HOME / focusing Lock
 constexpr float kUnlockAnimDelay = 0.05f; // hitch after restoring HOME under Lock
 // Zoom scale endpoints (Out grows away / In shrinks in).
@@ -199,7 +200,8 @@ void LockScreen::show(bool instant) {
     resetSwipe();
     m_curtain.setImmediate(0.f);
     m_zoom.setImmediate(1.f);
-    if (instant) {
+    if (instant || m_transition == Transition::Classic) {
+        m_awaitEnterSettle = false;
         m_fade.setImmediate(1.f);
         m_dateReveal.setImmediate(1.f);
     } else {
@@ -288,6 +290,12 @@ void LockScreen::beginCurtainUnlock() {
         m_curtainHomeShown = true;
     }
 
+    if (m_transition == Transition::Classic) {
+        m_curtain.setImmediate(0.f);
+        m_fade.set(0.f, kClassicExitSec, nxui::Easing::linear);
+        return;
+    }
+
     // Brief delay so the HOME restore hitch doesn't eat the first frames.
     if (m_transition == Transition::Dissolve) {
         m_curtain.setImmediate(0.f);
@@ -350,6 +358,8 @@ void LockScreen::handleTouch(nxui::Input& input) {
 
     if (input.isTouching()) {
         const float dy = m_swipeStartY - input.touchY(); // up = positive
+        if (!m_swipeEnabled)
+            return;
         if (!m_swipeDragging) {
             if (std::fabs(input.touchDeltaX()) > std::fabs(dy) + 12.f &&
                 std::fabs(input.touchDeltaX()) > kSwipeDeadzone) {
@@ -361,7 +371,7 @@ void LockScreen::handleTouch(nxui::Input& input) {
         }
         const float progress = std::clamp(dy / kCurtainTravel, 0.f, 1.f);
         m_curtain.setImmediate(progress);
-        if (m_transition == Transition::Dissolve)
+        if (m_transition == Transition::Dissolve || m_transition == Transition::Classic)
             m_fade.setImmediate(1.f - progress);
         else if (m_transition == Transition::Zoom) {
             m_fade.setImmediate(1.f - progress * 0.9f);
@@ -385,7 +395,10 @@ void LockScreen::handleTouch(nxui::Input& input) {
 
     if (wasDragging) {
         if (progress >= kSwipeCommit || flick >= kSwipeFlickPx) {
-            beginCurtainUnlock();
+            if (m_onSwipeUnlock)
+                m_onSwipeUnlock();
+            else
+                beginCurtainUnlock();
         } else {
             m_curtain.set(0.f, 0.28f, nxui::Easing::outCubic);
             m_fade.set(1.f, 0.28f, nxui::Easing::outCubic);
@@ -394,6 +407,10 @@ void LockScreen::handleTouch(nxui::Input& input) {
         return;
     }
 
+    if (m_onTap) {
+        m_onTap(input.touchX(), input.touchY());
+        return;
+    }
     if (m_canResume) {
         const auto r = resumeButtonRect(0.f);
         const float x = input.touchX();
@@ -409,6 +426,31 @@ void LockScreen::handleTouch(nxui::Input& input) {
         }
     }
     unlock();
+}
+
+bool LockScreen::resumeHit(float x, float y) const {
+    if (!m_canResume || !m_chromeVisible)
+        return false;
+    for (const nxui::Rect r : {resumeButtonRect(0.f), iconRect(0.f)})
+        if (x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height)
+            return true;
+    return false;
+}
+
+float LockScreen::overlayAlpha() const {
+    if (!m_active)
+        return 0.f;
+    const float fade = std::clamp(m_fade.value(), 0.f, 1.f);
+    // Wipe only clips the plane; what floats over it fades as it goes.
+    if (m_transition == Transition::Wipe)
+        return fade * std::clamp(1.f - m_curtain.value(), 0.f, 1.f);
+    return fade;
+}
+
+float LockScreen::overlayDy() const {
+    if (m_transition == Transition::Classic)
+        return -(1.f - std::clamp(m_fade.value(), 0.f, 1.f)) * 80.f;
+    return m_transition == Transition::Curtain ? -m_curtain.value() * kCurtainTravel : 0.f;
 }
 
 void LockScreen::refreshClock() {
@@ -494,7 +536,7 @@ void LockScreen::update(float dt) {
 
     bool done = false;
     if (m_unlocking) {
-        if (m_transition == Transition::Dissolve)
+        if (m_transition == Transition::Dissolve || m_transition == Transition::Classic)
             done = m_fade.value() <= 0.01f;
         else if (m_transition == Transition::Zoom) {
             const float z1 = (m_zoomDir == 1) ? kZoomInExit : kZoomOutExit;
@@ -544,6 +586,18 @@ void LockScreen::drawAtmosphere(nxui::Renderer& ren, float dx, float dy, float z
 
 void LockScreen::drawClock(nxui::Renderer& ren, float dx, float dy, float zoom, float fade,
                            const nxui::Color& ink, const nxui::Color& inkSoft) const {
+    if (m_compactClock) {
+        // Top left, like a phone's: the time, the date under it.
+        constexpr float kLeft = 44.f;
+        nxui::Font* timeFont = m_timeFont ? m_timeFont.get() : m_font;
+        const float scale = (m_timeFont ? 0.6f : 1.4f) * zoom;
+        const nxui::Vec2 tl = mapLockPt(kLeft, 26.f, dx, dy, zoom);
+        ren.drawText(m_timeStr, tl, timeFont, ink, scale);
+        nxui::Font* small = m_smallFont ? m_smallFont : m_font;
+        const float timeH = timeFont->measure(m_timeStr).y * scale;
+        ren.drawText(m_dateStr, {tl.x + 2.f, tl.y + timeH + 2.f}, small, inkSoft, zoom);
+        return;
+    }
     nxui::Font* dateFont = m_font ? m_font : m_smallFont;
     const float dateT = std::clamp(m_dateReveal.value(), 0.f, 1.f);
     const float dateDrop = (1.f - dateT) * 16.f;
@@ -604,7 +658,7 @@ void LockScreen::drawClock(nxui::Renderer& ren, float dx, float dy, float zoom, 
 }
 
 void LockScreen::render(nxui::Renderer& ren) {
-    if (!m_active || !m_theme || !m_font)
+    if (!m_active || !m_theme || !m_font || m_transition == Transition::Classic)
         return;
 
     const float curtainT = m_curtain.value();
@@ -665,7 +719,8 @@ void LockScreen::render(nxui::Renderer& ren) {
         clipped = true;
     }
 
-    const bool paintPlane = m_hasHero || curtainMoving || wipeMoving || dissolveZoomPlane;
+    const bool paintPlane = m_hasHero || m_opaqueBackdrop || curtainMoving || wipeMoving
+        || dissolveZoomPlane;
     if (paintPlane && fade > 0.01f) {
         if (m_hasHero) {
             ren.drawTexture(&m_heroTex, atZoom({0.f, 0.f, kScreenW, kScreenH}, bgZoom),
@@ -680,10 +735,14 @@ void LockScreen::render(nxui::Renderer& ren) {
         }
     }
 
+    if (m_scrim > 0.f && fade > 0.01f)
+        ren.drawRect(atZoom({0.f, 0.f, kScreenW, kScreenH}, bgZoom),
+                     nxui::Color(0.015f, 0.02f, 0.04f, m_scrim * fade));
+
     // Vignette is part of the BG wash — keep it fullscreen on Zoom In.
     drawAtmosphere(ren, dx, dy, bgZoom, fade);
 
-    const bool lightInk = m_hasHero;
+    const bool lightInk = this->lightInk();
     const nxui::Color ink = (lightInk ? nxui::Color(1.f, 1.f, 1.f, 1.f) : th.textPrimary)
                                 .withAlpha(fade);
     const nxui::Color inkSoft = (lightInk ? nxui::Color(1.f, 1.f, 1.f, 1.f) : th.textSecondary)
@@ -712,7 +771,9 @@ void LockScreen::render(nxui::Renderer& ren) {
 
     drawClock(ren, dx, dy, zoom, fade, ink, inkSoft);
 
-    if (m_canResume) {
+    if (!m_chromeVisible) {
+        // The menu draws its own prompt over this.
+    } else if (m_canResume) {
         if (m_hasIcon) {
             const nxui::Rect ir = at(iconRect(0.f));
             // Tint with fade so the resume tile dissolves with the Lock plane.

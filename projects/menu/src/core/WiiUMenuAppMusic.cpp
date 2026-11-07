@@ -676,8 +676,6 @@ void WiiUMenuApp::updateLockMusic() {
     }
     m_lockMusicShown = hasTrack && (m_lockMusicPlaying || m_lockMusicKeep ||
                                     (m_spotifyReconnecting > 0.f && spotifySource()));
-    // Bars and shapes move; otherwise only the clock does.
-    app().setIdlePresentStride(m_lockMusicShown || (m_config.lockShapes && !m_lockGameBackdrop) ? 0 : 6);
 }
 
 void WiiUMenuApp::updateMusicBars(float dt) {

@@ -313,13 +313,10 @@ void Application::run() {
 
             if (m_renderEnabled) {
                 // Static menus do not need a full GPU submission at 60 Hz.
-                // Keep input/update responsive, but on battery present at
-                // 30 Hz once the UI has been idle long enough for transitions
-                // to settle: every second vblank (a steady 30 Hz; a 16 ms
-                // sleep drifted off vsync and stuttered anything still
-                // animating). Any new input restores 60 Hz on the next frame.
-                // Docked stays at 60 Hz. A slower stride (the lock screen,
-                // Battery Saver) skips whole frames instead.
+                // Keep input/update responsive, but on battery present every
+                // other frame once the UI has been idle long enough for
+                // transitions to settle. Any new input immediately restores
+                // 60 Hz. Docked stays at 60 Hz.
                 unsigned stride = 1;
                 if (m_idlePresentStride > 1) {
                     if (idleSeconds >= 0.3f)
@@ -338,8 +335,9 @@ void Application::run() {
                     if (!docked)
                         stride = 2;
                 }
-                m_gpu.setSwapInterval(stride == 2 ? 2 : 1);
-                if (stride > 2 && ++idleFrame % stride != 0) {
+                // Every vblank, always: a 2 swap interval queued frames at 30 Hz
+                // that still showed after input, so the first moves lagged.
+                if (stride > 1 && ++idleFrame % stride != 0) {
                     svcSleepThread(16'000'000ULL);
                     continue;
                 }

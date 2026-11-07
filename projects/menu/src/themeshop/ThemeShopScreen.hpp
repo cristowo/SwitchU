@@ -149,7 +149,7 @@ public:
     void setFrameTapLiteEngaged(bool engaged) { m_frameTapLiteEngaged = engaged; }
     void setIconContrastAdaptState(bool enabled) { m_iconContrastAdapt = enabled; }
     void setLockScreenTransitionState(int mode) {
-        m_lockScreenTransition = std::clamp(mode, 0, 3);
+        m_lockScreenTransition = std::clamp(mode, 0, 4);
     }
     void setLockScreenZoomDirState(int dir) {
         m_lockScreenZoomDir = std::clamp(dir, 0, 1);

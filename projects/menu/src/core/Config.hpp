@@ -97,7 +97,8 @@ struct AppConfig {
     int powerButtonAction = 0;
     // Lock clock face id (see LockClockFonts.hpp). Empty / "theme" = theme regular.
     std::string lockScreenClockFont;
-    // Lock enter/exit motion: 0 = Curtain, 1 = Dissolve, 2 = Zoom, 3 = Wipe.
+    // Lock enter/exit motion: 0 = Curtain, 1 = Dissolve, 2 = Zoom, 3 = Wipe,
+    // 4 = Classic (SwitchU's own lock: frosted HOME, quick fade).
     int lockScreenTransition = 0;
     // Zoom: 0 = Out (grow away), 1 = In (shrink in).
     int lockScreenZoomDir = 0;

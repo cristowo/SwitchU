@@ -3691,7 +3691,7 @@ void QuickSettingsOverlay::render(nxui::Renderer& ren) {
         drawPowerBtn(PowerAction::Lock, i18n.tr("quicksettings.lock", "Lock"));
     drawPowerBtn(PowerAction::Sleep, i18n.tr("quicksettings.sleep", "Sleep"));
     drawPowerBtn(PowerAction::Reboot, i18n.tr("quicksettings.reboot", "Reboot"));
-    drawPowerBtn(PowerAction::Shutdown, i18n.tr("quicksettings.off", "Off"));
+    drawPowerBtn(PowerAction::Shutdown, i18n.tr("quicksettings.power_off_short", "Off"));
 
     // Clip playlist-row cursor to the list viewport so it cannot paint over
     // cover art or below the playlist panel during touch scroll/reorder.

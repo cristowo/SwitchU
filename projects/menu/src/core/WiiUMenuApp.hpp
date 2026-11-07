@@ -546,7 +546,11 @@ private:
     void releaseLeaveSplashGpu(const char* reason);
     // Wake lock screen ("press the same button three times"). Blocks all
     // input while shown; resumeOnUnlock returns straight to the suspended title.
-    void showLockScreen(bool resumeOnUnlock);
+    void showLockScreen(bool resumeOnUnlock, bool instant = true);
+    void presentLockView(bool canResume, bool instant);
+    void syncLockView();
+    void renderClassicLock(nxui::Renderer& ren, float y, float a, bool album);
+    void onLockTap(float x, float y);
     // Enabled, and not on the TV unless a password is set (docking would get around it).
     bool lockScreenApplies() const;
     enum class LockTask { Unlock, MakePassword, RemovePassword, Preview };
@@ -559,7 +563,7 @@ private:
     void loadCustomNames();
     void saveCustomNames() const;
     void updateLockScreen(float dt);
-    void unlockLockScreen();
+    void unlockLockScreen(bool toHome = false);
     void registerLockPress(std::uint64_t input);
     void renderLockScreen(nxui::Renderer& ren);
     void refreshLockClock();
@@ -673,8 +677,8 @@ private:
 
     nxui::Font  m_fontNormal;
     nxui::Font  m_fontSmall;
+    nxui::Font  m_fontLock; // the classic lock's big clock, loaded on first use
     nxui::Font  m_fontIcons;
-    nxui::Font  m_fontLock; // large clock, loaded on first lock screen
 
     GridModel    m_model;
     nxui::Theme  m_theme;
@@ -892,7 +896,6 @@ private:
     // Locked over a suspended title: keep its frame (or black) behind the
     // overlay until the title is back, HOME must never show in between.
     bool m_lockGameBackdrop = false;
-    bool m_lockResumePending = false;
     // Sleep requested on HOME: present the lock frame once, then stop.
     bool m_sleepAfterPresent = false;
     bool m_startFromGame = false;
@@ -904,7 +907,6 @@ private:
     nxui::Texture m_lockPicture;
     nxui::Texture m_gameFrameTex;
     std::unordered_map<std::uint64_t, std::string> m_customNames;
-    float m_lockFade = 0.f;
     float m_lockClockTimer = 0.f;
     float m_lockIdleTimer = 0.f;
     bool m_lockMusicShown = false;
@@ -920,6 +922,9 @@ private:
     std::uint32_t m_lockDiscSeed = 0;
     // Backlight off, console awake, music playing (daemon: enterScreenOff).
     bool m_screenOff = false;
+    bool m_lockOverOverlay = false;     // shown over Settings & co.
+    bool m_lockCascadePending = false;  // tiles fall in when HOME shows again
+    int m_darkFramesLeft = 0; // frames to present before going dark
     float m_screenOffSilence = 0.f;
     int m_screenOffWantedSent = -1;
     bool m_autoSleepDisabled = false;

@@ -133,7 +133,7 @@ bool AppConfig::load() {
     powerButtonAction = std::clamp(powerButtonAction, 0, 2);
     readJsonOpt(j, "lockScreenClockFont", lockScreenClockFont);
     readJsonOpt(j, "lockScreenTransition", lockScreenTransition);
-    lockScreenTransition = std::clamp(lockScreenTransition, 0, 3);
+    lockScreenTransition = std::clamp(lockScreenTransition, 0, 4);
     readJsonOpt(j, "lockScreenZoomDir", lockScreenZoomDir);
     lockScreenZoomDir = std::clamp(lockScreenZoomDir, 0, 1);
     readJsonOpt(j, "lockScreenWipeDir", lockScreenWipeDir);
@@ -337,7 +337,7 @@ bool AppConfig::save() const {
     j["batterySaver"] = batterySaver;
     j["powerButtonAction"] = std::clamp(powerButtonAction, 0, 2);
     j["lockScreenClockFont"] = lockScreenClockFont;
-    j["lockScreenTransition"] = std::clamp(lockScreenTransition, 0, 3);
+    j["lockScreenTransition"] = std::clamp(lockScreenTransition, 0, 4);
     j["lockScreenZoomDir"] = std::clamp(lockScreenZoomDir, 0, 1);
     j["lockScreenWipeDir"] = std::clamp(lockScreenWipeDir, 0, 3);
     j["themeLockClockFontOverride"] = themeLockClockFontOverride;

@@ -27,6 +27,9 @@ public:
         Dissolve = 1,
         Zoom = 2,
         Wipe = 3,
+        // SwitchU's own look: the menu draws it all (frosted HOME, its clock);
+        // this view only times the fade in and out.
+        Classic = 4,
     };
 
     LockScreen();
@@ -60,13 +63,17 @@ public:
     void setOnEnterSettled(std::function<void()> cb) { m_onEnterSettled = std::move(cb); }
     /// Dissolve/Zoom fade/zoom the Lock plane as one unit over the live wallpaper.
     bool keepsHomeUnderlay() const {
-        return m_transition == Transition::Dissolve || m_transition == Transition::Zoom;
+        return m_transition == Transition::Dissolve || m_transition == Transition::Zoom
+            || m_transition == Transition::Classic;
     }
     /// Curtain/Wipe enter keep HOME chrome under the sliding/clipped plane.
     /// Dissolve/Zoom enter only need the live wallpaper (icons would peek early).
     bool keepsHomeDuringEnter() const {
-        return m_transition == Transition::Curtain || m_transition == Transition::Wipe;
+        return m_transition == Transition::Curtain || m_transition == Transition::Wipe
+            || m_transition == Transition::Classic;
     }
+    /// HOME stays under it all the time (it is frosted, not hidden).
+    bool classic() const { return m_transition == Transition::Classic; }
 
     void warmTimeFont();
     void show(bool instant = false);
@@ -90,7 +97,28 @@ public:
     void rearmInput() { m_age = 0.f; }
     void refreshNow() { m_lastMinute = -1; refreshClock(); }
     void handleTouch(nxui::Input& input);
-    void requestUnlock() { unlock(); }
+    /// Unlock now (the caller decided), even inside the input guard.
+    void requestUnlock() { beginCurtainUnlock(); }
+
+    // ── The menu's own lock (password, music) drawn over this view ──────────
+    /// Resume tile, Resume button and the unlock hint. Off when the menu
+    /// draws its own prompt (a password, the three presses, the music card).
+    void setChromeVisible(bool visible) { m_chromeVisible = visible; }
+    /// Small clock at the top left, for a cover that takes the middle.
+    void setCompactClock(bool compact) { m_compactClock = compact; }
+    /// Darkens the backdrop under white overlays; also switches the ink to white.
+    void setScrim(float alpha) { m_scrim = std::clamp(alpha, 0.f, 1.f); }
+    /// The backdrop drawer paints a picture: draw it even when nothing moves.
+    void setOpaqueBackdrop(bool opaque) { m_opaqueBackdrop = opaque; }
+    void setSwipeEnabled(bool enabled) { m_swipeEnabled = enabled; }
+    /// A swipe up that commits, and a tap: the menu decides what they do.
+    void setOnSwipeUnlock(std::function<void()> cb) { m_onSwipeUnlock = std::move(cb); }
+    void setOnTap(std::function<void(float x, float y)> cb) { m_onTap = std::move(cb); }
+    bool resumeHit(float x, float y) const;
+    /// Where the overlays sit: the plane's opacity and its vertical shift.
+    float overlayAlpha() const;
+    float overlayDy() const;
+    bool lightInk() const { return m_hasHero || m_opaqueBackdrop || m_scrim > 0.f; }
 
     bool isActive() const { return m_active; }
     bool isUnlocking() const { return m_unlocking; }
@@ -161,6 +189,13 @@ private:
     bool m_swipeActive = false;
     bool m_swipeDragging = false;
     bool m_curtainHomeShown = false;
+    bool m_chromeVisible = true;
+    bool m_compactClock = false;
+    float m_scrim = 0.f;
+    bool m_opaqueBackdrop = false;
+    bool m_swipeEnabled = true;
+    std::function<void()> m_onSwipeUnlock;
+    std::function<void(float, float)> m_onTap;
     float m_swipeStartY = 0.f;
     float m_suspendPulse = 0.f;
     BackdropDraw m_onDrawBackdrop;

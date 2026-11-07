@@ -74,7 +74,27 @@
       "month": "Mes",
       "day": "Día",
       "hour": "Hora",
-      "minute": "Minuto"
+      "minute": "Minuto",
+      "timezone_button": "Cambiar",
+      "timezone_desc": "Elige una zona horaria.",
+      "timezone_filter_title": "Filtrar zonas horarias",
+      "timezone_filter_guide": "Escribe para filtrar (p. ej. Santiago). Déjalo vacío para verlas todas.",
+      "timezone_filter_option": "Buscar",
+      "timezone_popup_hint": "Izquierda para buscar. Arriba/abajo para elegir. A para confirmar.",
+      "timezone_popup_footer": "A Confirmar   ·   B Cancelar",
+      "timezone_none": "No hay zonas horarias que coincidan.",
+      "timezone_failed": "No se pudo cambiar la zona horaria.",
+      "timezone_saved": "Zona horaria actualizada.",
+      "web_time": "Sincronizar el reloj con servidores públicos",
+      "web_time_desc": "Ajusta el reloj por HTTPS público (funciona con bloqueo de DNS)",
+      "web_time_button": "Sincronizar ahora",
+      "web_time_working": "Sincronizando el reloj desde la web...",
+      "web_time_busy": "Ya se está sincronizando el reloj.",
+      "web_time_failed": "No se pudo sincronizar el reloj desde la web.",
+      "web_time_saved": "Reloj sincronizado desde la web.",
+      "manual_time_disable_sync_title": "¿Desactivar la sincronización del reloj?",
+      "manual_time_disable_sync_msg": "Se desactivará la sincronización. ¿Continuar?",
+      "usb30_restart": "Los cambios de USB 3.0 se aplican al reiniciar."
     },
     "audio": {
       "speaker_auto_mute": "Auto-mute de altavoces",
@@ -342,7 +362,13 @@
       "cancelling": "Cancelando...",
       "scan_cancelled": "Búsqueda de arte cancelada.",
       "api_key_guide": "Ingrese su clave de API",
-      "search_failed": "La búsqueda falló. Si HTTPS sigue fallando, revisa el reloj de la consola en Ajustes > Sistema."
+      "search_failed": "La búsqueda falló. Si HTTPS sigue fallando, revisa el reloj de la consola en Ajustes > Sistema.",
+      "show_poster_line": "Mostrar póster en la vista de una fila",
+      "show_poster_line_desc": "Usa las portadas verticales de SteamGridDB en el carrusel. La cuadrícula sigue con iconos.",
+      "show_logo_line": "Mostrar logo en la vista de una fila",
+      "show_logo_line_desc": "El logo del juego sobre el carrusel. Desactívalo para dejar solo la imagen y las portadas.",
+      "https_clock_hint": "Falló HTTPS. Si el reloj de la consola está mal, corrígelo en Ajustes > Sistema: prueba Sincronizar el reloj con servidores públicos.",
+      "https_clock_title": "No se pudo conectar con SteamGridDB"
     },
     "loading_tab": "Cargando esta sección en segundo plano."
   },
@@ -389,7 +415,11 @@
       "icon_desc": "Abre la galería de iconos y elige uno para este juego.",
       "clear_desc": "Quita el reemplazo de SteamGridDB y restaura el predeterminado.",
       "cleared": "Arte de SteamGridDB eliminado.",
-      "nothing_to_clear": "No hay arte de SteamGridDB que eliminar."
+      "nothing_to_clear": "No hay arte de SteamGridDB que eliminar.",
+      "poster": "Póster",
+      "poster_desc": "Portada vertical para la vista de una fila y las casillas de 2x3.",
+      "poster_wide": "Póster ancho",
+      "poster_wide_desc": "Imagen horizontal para esta casilla de 2x1."
     },
     "rename_title": "Renombrar",
     "rename_guide": "Déjalo vacío para usar el nombre original",
@@ -400,7 +430,9 @@
     "choose_action": "Elige una acción de energía.",
     "sleep": "Suspender",
     "shutdown": "Apagar",
-    "reboot": "Reiniciar"
+    "reboot": "Reiniciar",
+    "lock": "Bloquear",
+    "off": "Apagar"
   },
   "languages": {
     "ja-JP": "Japonés",
@@ -464,7 +496,10 @@
     "tabs": {
       "installed": "Instalados",
       "community": "Comunidad",
-      "options": "Opciones"
+      "options": "Opciones",
+      "sounds": "Sonidos",
+      "interface": "Interfaz",
+      "lock_screen": "Pantalla de bloqueo"
     },
     "search": {
       "button": "Buscar",
@@ -485,7 +520,10 @@
       "remove_hint": "Este tema se puede eliminar de la consola.",
       "builtin_hint": "Este tema forma parte de la app.",
       "apply": "Aplicar tema",
-      "remove": "Eliminar tema"
+      "remove": "Eliminar tema",
+      "status_installed": "Instalado",
+      "remove_confirm": "¿Quitar este tema de la consola?",
+      "remove_confirm_yes": "Quitar"
     },
     "community": {
       "title": "Temas de la comunidad",
@@ -516,7 +554,9 @@
       "overwrite_apply_title": "Reemplazar y aplicar tema",
       "overwrite_apply_message": "Ya hay un paquete con este ID de tema. ¿Reemplazarlo por la versión de GitHub y aplicarlo?",
       "overwrite_install_title": "Reemplazar tema instalado",
-      "overwrite_install_message": "Ya hay un paquete con este ID de tema. ¿Reemplazarlo por la versión de GitHub?"
+      "overwrite_install_message": "Ya hay un paquete con este ID de tema. ¿Reemplazarlo por la versión de GitHub?",
+      "download_apply_confirm_title": "Descargar y aplicar",
+      "download_apply_confirm": "¿Descargar este tema y aplicarlo a HOME ahora?"
     },
     "transfer": {
       "prepare_apply": "Preparando descarga + aplicación...",
@@ -564,11 +604,80 @@
       "hint_panel": "Panel",
       "hint_capsules": "Cápsulas",
       "auto_theme": "Tema automático",
-      "auto_theme_desc": "Alterna automáticamente entre un tema de día y uno de noche."
+      "auto_theme_desc": "Alterna automáticamente entre un tema de día y uno de noche.",
+      "theme_music_override": "Permitir que los temas reemplacen mi lista",
+      "theme_music_override_desc": "Los temas con música pueden reemplazar tu lista de canciones.",
+      "theme_music_add": "Añadir la música del tema a mi lista",
+      "theme_music_add_desc": "Si no se reemplaza, se añaden las canciones del tema.",
+      "theme_music_play": "Reproducir la música del tema al aplicarlo",
+      "theme_music_play_desc": "Empieza las canciones añadidas tras Aplicar.",
+      "battery_saver": "Ahorro de batería",
+      "battery_saver_desc": "Aligera la memoria y la GPU de HOME.",
+      "lock_screen": "Pantalla de bloqueo",
+      "lock_screen_desc": "Bloquear al encender, suspender y despertar.",
+      "lock_clock_font": "Fuente del reloj",
+      "lock_clock_font_desc": "Tipografía del reloj de bloqueo.",
+      "lock_transition": "Transición de bloqueo",
+      "lock_transition_desc": "Cómo entra y sale el bloqueo. Clásica: la de SwitchU, con HOME esmerilado detrás.",
+      "lock_transition_curtain": "Cortina",
+      "lock_transition_dissolve": "Disolver",
+      "lock_transition_zoom": "Zoom",
+      "lock_transition_wipe": "Barrido",
+      "lock_transition_classic": "Clásica",
+      "lock_transition_option": "Opción de transición",
+      "lock_transition_option_desc": "Para Zoom y Barrido.",
+      "lock_zoom_dir": "Dirección del zoom",
+      "lock_zoom_dir_desc": "Alejar crece hacia fuera; Acercar se encoge.",
+      "lock_zoom_out": "Alejar",
+      "lock_zoom_in": "Acercar",
+      "lock_wipe_dir": "Dirección del barrido",
+      "lock_wipe_dir_desc": "Hacia dónde sale el bloqueo.",
+      "lock_wipe_up": "Arriba",
+      "lock_wipe_right": "Derecha",
+      "lock_wipe_down": "Abajo",
+      "lock_wipe_left": "Izquierda",
+      "theme_lock_font_override": "Permitir que los temas cambien la fuente del reloj",
+      "theme_lock_font_override_desc": "Los temas pueden cambiar la fuente de tu reloj.",
+      "theme_icon_override": "Permitir que los temas reemplacen mis iconos",
+      "theme_icon_override_desc": "Los temas pueden cambiar tu paquete de iconos.",
+      "frame_tap_engaged": "Frame Tap en uso",
+      "frame_tap_engaged_desc": "Fijo mientras Frame Tap transmite. Desconéctalo para cambiarlo."
     },
     "page": {
       "next": "Siguiente",
       "prev": "Anterior"
+    },
+    "badge": {
+      "icons": "Iconos",
+      "music": "Música",
+      "sounds": "Sonidos",
+      "tint": "Tinte",
+      "auto": "Auto"
+    },
+    "icons": {
+      "title": "Iconos",
+      "subtitle": "Paquetes de iconos de la barra lateral.",
+      "loading": "Cargando el catálogo de iconos...",
+      "empty_shop": "No hay paquetes de iconos para descargar.",
+      "empty_shop_hint": "Actualiza el catálogo o cambia a Instalados para ver los paquetes de esta consola.",
+      "empty": "No hay paquetes de iconos instalados.",
+      "empty_hint": "Cambia a Tienda para descargar paquetes, o instala un tema que traiga iconos.",
+      "apply": "Aplicar paquete de iconos",
+      "remove": "Quitar paquete de iconos",
+      "remove_confirm": "¿Borrar este paquete de iconos de la consola?",
+      "remove_failed": "No se pudo quitar este paquete de iconos.",
+      "removed": "Paquete de iconos quitado.",
+      "installed": "Paquete de iconos instalado.",
+      "status_online": "Disponible en línea",
+      "download_hint": "Instálalo para descargar este paquete a la consola.",
+      "remove_hint": "Paquete descargado: se puede quitar de la consola.",
+      "download_apply_confirm_title": "Descargar y aplicar",
+      "download_apply_confirm": "¿Descargar este paquete de iconos y aplicarlo ahora?",
+      "dialog_title": "Descargando paquete de iconos",
+      "prepare_download": "Preparando la descarga del paquete de iconos...",
+      "finalize_download": "Terminando de instalar el paquete de iconos...",
+      "fallback": "Los iconos que falten usan los predeterminados.",
+      "apply_hint": "Aplícalo para cambiar los iconos de la barra lateral al instante."
     }
   },
   "hint": {
@@ -686,7 +795,9 @@
     "user_profile": "Perfil de usuario",
     "layout": {
       "grid": "Modo cuadrícula",
-      "dynamic_line": "Modo línea dinámica"
+      "dynamic_line": "Modo línea dinámica",
+      "flip_to_line": "Cambiar a la vista de una fila.",
+      "flip_to_grid": "Cambiar a la vista de cuadrícula."
     }
   },
   "tutorial": {
@@ -787,6 +898,7 @@
     "sleep": "Suspender",
     "reboot": "Reiniciar",
     "power_off": "Apagar",
+    "power_off_short": "Apagar",
     "hint_adjust": "Ajustar",
     "hint_shortcut": "Ajustes rápidos",
     "music_empty": "No hay música cargada",
@@ -799,7 +911,9 @@
     "music_idle": "Sin reproducir",
     "playlist_empty": "Sin pistas",
     "source_local": "Canciones",
-    "source_spotify": "Spotify"
+    "source_spotify": "Spotify",
+    "lock": "Bloquear",
+    "battery_saver": "Ahorro de batería"
   },
   "profilelock": {
     "title": "Perfil predeterminado",
@@ -1046,5 +1160,34 @@
     "months": "Enero,Febrero,Marzo,Abril,Mayo,Junio,Julio,Agosto,Septiembre,Octubre,Noviembre,Diciembre",
     "weekdays": "L,M,X,J,V,S,D",
     "first_weekday": "1"
+  },
+  "lock": {
+    "enter": "Pulsa A para entrar",
+    "unlock_home": "Pulsa B para ir a HOME",
+    "resume": "Pulsa A para continuar",
+    "date_format": "{weekday} {day} de {month}",
+    "weekday": {
+      "0": "Domingo",
+      "1": "Lunes",
+      "2": "Martes",
+      "3": "Miércoles",
+      "4": "Jueves",
+      "5": "Viernes",
+      "6": "Sábado"
+    },
+    "month": {
+      "1": "enero",
+      "2": "febrero",
+      "3": "marzo",
+      "4": "abril",
+      "5": "mayo",
+      "6": "junio",
+      "7": "julio",
+      "8": "agosto",
+      "9": "septiembre",
+      "10": "octubre",
+      "11": "noviembre",
+      "12": "diciembre"
+    }
   }
 }

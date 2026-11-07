@@ -2812,19 +2812,17 @@ void WiiUMenuApp::handleSystemAction(SysAction a) {
     switch (a) {
         case SysAction::HomeDismiss: {
             // Physical HOME while already browsing the menu.
-            if (m_lockViewActive && m_lockScreen) {
-                DebugLog::log("[pump] HomeDismiss -> unlock Lock view");
-                m_lockScreen->requestUnlock();
-                break;
-            }
-            DebugLog::log("[pump] HomeDismiss -> close folder/overlays");
-            m_launcher.setAppHasForeground(false);
             // On the lock screen HOME is one more button towards unlocking, and
             // must not close whatever is open behind it.
             if (m_lockScreenActive) {
+                m_launcher.setAppHasForeground(false);
                 registerLockPress(kLockPressHome);
                 break;
             }
+            if (m_lockViewActive) // already on its way out
+                break;
+            DebugLog::log("[pump] HomeDismiss -> close folder/overlays");
+            m_launcher.setAppHasForeground(false);
             // Like the stock HOME menu: with nothing left to dismiss, HOME goes
             // back to the suspended game instead of doing nothing.
             const std::uint64_t suspendedId = m_launcher.suspendedTitleId();

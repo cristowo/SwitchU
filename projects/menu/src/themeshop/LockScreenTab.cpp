@@ -38,7 +38,7 @@ void themeshop::tabs::LockScreenTab::syncClockFontSelector(
 void themeshop::tabs::LockScreenTab::syncTransitionCompanion(
     ThemeShopScreen& screen, ThemeShopScreen::SettingItem& item) {
     auto& i18n = nxui::I18n::instance();
-    const int mode = std::clamp(screen.m_lockScreenTransition, 0, 3);
+    const int mode = std::clamp(screen.m_lockScreenTransition, 0, 4);
     item.indentLevel = 1;
     item.type = ThemeShopScreen::ItemType::Selector;
 
@@ -164,10 +164,11 @@ ThemeShopScreen::Tab themeshop::tabs::LockScreenTab::build(ThemeShopScreen& scre
             i18n.tr("themeshop.options.lock_transition_dissolve", "Dissolve"),
             i18n.tr("themeshop.options.lock_transition_zoom", "Zoom"),
             i18n.tr("themeshop.options.lock_transition_wipe", "Wipe"),
+            i18n.tr("themeshop.options.lock_transition_classic", "Classic"),
         };
-        it.intVal = std::clamp(screen.m_lockScreenTransition, 0, 3);
+        it.intVal = std::clamp(screen.m_lockScreenTransition, 0, 4);
         it.onChange = [&screen](SettingItem& self) {
-            screen.m_lockScreenTransition = std::clamp(self.intVal, 0, 3);
+            screen.m_lockScreenTransition = std::clamp(self.intVal, 0, 4);
             if (screen.m_lockScreenTransitionCb)
                 screen.m_lockScreenTransitionCb(screen.m_lockScreenTransition);
         };
@@ -188,7 +189,7 @@ ThemeShopScreen::Tab themeshop::tabs::LockScreenTab::build(ThemeShopScreen& scre
         syncClockFontSelector(screen, tab.items[1]);
         tab.items[2].boolVal = screen.m_themeLockClockFontOverride;
         tab.items[2].anim01 = screen.m_themeLockClockFontOverride ? 1.f : 0.f;
-        tab.items[3].intVal = std::clamp(screen.m_lockScreenTransition, 0, 3);
+        tab.items[3].intVal = std::clamp(screen.m_lockScreenTransition, 0, 4);
         LockScreenTab::syncTransitionCompanion(screen, tab.items[4]);
     };
 
