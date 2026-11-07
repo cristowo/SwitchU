@@ -257,7 +257,7 @@ private:
     // Measures the music only while bars are on screen (lock or widget).
     void updateMusicBars(float dt);
     // album: the cover in the middle with a record behind it (lockAlbumSources).
-    void renderLockMusic(nxui::Renderer& ren, float y, float a, bool album);
+    void renderLockMusic(nxui::Renderer& ren, float y, float a, bool album, bool overGame = false);
     bool lockAlbumStyle() const;
     void enterScreenOff();
     void leaveScreenOff();
@@ -630,6 +630,9 @@ private:
 
     nxui::Font  m_fontNormal;
     nxui::Font  m_fontSmall;
+    nxui::Texture m_lockGameIcon;       // the suspended title's icon, middle of the lock
+    std::uint64_t m_lockGameIconId = 0;
+    std::string m_lockGameName;
     nxui::Font  m_fontIcons;
     nxui::Font  m_fontLock; // large clock, loaded on first lock screen
 

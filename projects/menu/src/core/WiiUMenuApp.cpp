@@ -7145,9 +7145,17 @@ void WiiUMenuApp::loadSoundPreset(const std::string& preset) {
     m_audio.loadSfx(Sfx::ConfirmPositive, sfxPath("sfx/confirm.wav"));
     m_audio.loadSfx(Sfx::Volume,          sfxPath("sfx/volume.wav"));
 
-    std::string musicDir = musicBase + "/music";
+    // The theme preset's music, then your own library (switch/SwitchU/music,
+    // from PoloNX 1.4.0). The folder is made so it is there to fill.
+    constexpr const char* kUserMusicDir = "sdmc:/switch/SwitchU/music";
     std::error_code ec;
-    if (std::filesystem::is_directory(musicDir, ec)) {
+    std::filesystem::create_directories(kUserMusicDir, ec);
+    size_t loaded = 0;
+    size_t albums = 0;
+    for (const std::string musicDir : {musicBase + "/music", std::string(kUserMusicDir)}) {
+        ec.clear();
+        if (!std::filesystem::is_directory(musicDir, ec))
+            continue;
         std::vector<std::string> rootTracks;
         std::vector<std::string> albumFolders;
         ec.clear();
@@ -7166,8 +7174,8 @@ void WiiUMenuApp::loadSoundPreset(const std::string& preset) {
         }
         sortMusicTrackNames(rootTracks);
         std::sort(albumFolders.begin(), albumFolders.end());
+        albums += albumFolders.size();
 
-        size_t loaded = 0;
         for (const auto& t : rootTracks) {
             if (m_audio.loadTrack(musicDir + "/" + t))
                 ++loaded;
@@ -7206,17 +7214,19 @@ void WiiUMenuApp::loadSoundPreset(const std::string& preset) {
                 }
             }
         }
-
-        if (!m_config.musicPlaylistOrder.empty())
-            m_audio.applyPlaylistOrder(m_config.musicPlaylistOrder);
-        m_audio.setShuffle(m_config.musicShuffle);
-        m_audio.setRepeatMode(static_cast<MusicRepeatMode>(
-            std::clamp(m_config.musicRepeatMode, 0, 2)));
-        DebugLog::log("[audio] Loaded %zu music tracks (%zu albums)",
-                      loaded, albumFolders.size());
-    } else {
-        DebugLog::log("[audio] No music directory for preset '%s'", effectivePreset.c_str());
     }
+
+    if (loaded == 0) {
+        DebugLog::log("[audio] No music for preset '%s' nor in %s",
+                      effectivePreset.c_str(), kUserMusicDir);
+        return;
+    }
+    if (!m_config.musicPlaylistOrder.empty())
+        m_audio.applyPlaylistOrder(m_config.musicPlaylistOrder);
+    m_audio.setShuffle(m_config.musicShuffle);
+    m_audio.setRepeatMode(static_cast<MusicRepeatMode>(
+        std::clamp(m_config.musicRepeatMode, 0, 2)));
+    DebugLog::log("[audio] Loaded %zu music tracks (%zu albums)", loaded, albums);
 }
 
 void WiiUMenuApp::persistMusicPlaybackState(bool updateEnabledFlag) {
@@ -7596,6 +7606,24 @@ void WiiUMenuApp::showLockScreen(bool resumeOnUnlock) {
             ? std::string(SD_ASSETS) + "/fonts/DejaVuSans.ttf"
             : m_loadedRegularFontPath;
         m_fontLock.load(app().gpu(), app().renderer(), fontPath, 96);
+    }
+    // Over a title: its icon goes in the middle, like an album's sleeve.
+    if (m_lockGameBackdrop) {
+        const std::uint64_t id = m_launcher.suspendedTitleId();
+        if (id != 0 && id != m_lockGameIconId) {
+            m_lockGameIconId = id;
+            m_lockGameIcon = nxui::Texture{};
+            m_lockGameName.clear();
+            const auto data = AppListLoader::loadIconData(id);
+            if (!data.empty())
+                m_lockGameIcon.loadFromMemory(app().gpu(), app().renderer(), data.data(),
+                                              data.size(), 256);
+            for (const auto& entry : m_allApps)
+                if (entry.titleId == id) {
+                    m_lockGameName = entry.title;
+                    break;
+                }
+        }
     }
     // Over a title its own frame is the picture.
     if (!m_lockGameBackdrop && !m_config.lockPicturePath.empty() && !m_lockPicture.valid())
@@ -7980,13 +8008,17 @@ void WiiUMenuApp::renderLockScreen(nxui::Renderer& ren) {
         ren.drawText(pct, {bx - 10.f - ps.x, by + (bh - ps.y) * 0.5f}, &m_fontSmall, ink);
     }
 
-    // Clock + date. The album style gives the middle to the record: the clock
-    // goes to the top left, like a phone's, with the date under it.
-    const bool album = lockAlbumStyle();
+    // Clock + date. The album style gives the middle to the record, and a
+    // suspended title to its icon (ahead of the record): the clock goes to the
+    // top left, like a phone's, with the date under it.
+    const bool gameCard = m_lockGameBackdrop && m_lockGameIcon.valid()
+        && !(usingLockPassword() && m_lockTask != LockTask::Preview);
+    const bool album = lockAlbumStyle() && !gameCard;
+    const bool topClock = album || gameCard;
     nxui::Font* big = m_fontLock.ptSize() > 0 ? &m_fontLock : &m_fontNormal;
-    const float bigScale = (big == &m_fontLock ? 1.f : 3.f) * (album ? 0.55f : 1.f);
+    const float bigScale = (big == &m_fontLock ? 1.f : 3.f) * (topClock ? 0.55f : 1.f);
     const nxui::Vec2 ts = big->measure(m_lockTimeStr);
-    if (album) {
+    if (topClock) {
         constexpr float kLeft = 44.f;
         const float timeY = 26.f + y;
         ren.drawText(m_lockTimeStr, {kLeft, timeY}, big, ink, bigScale);
@@ -7999,8 +8031,27 @@ void WiiUMenuApp::renderLockScreen(nxui::Renderer& ren) {
                      &m_fontNormal, soft);
     }
 
+    if (gameCard) {
+        // The title's icon where the sleeve would be, its name under it.
+        constexpr float kSide = 290.f;
+        const nxui::Rect art{(kW - kSide) * 0.5f, 300.f - kSide * 0.5f + y, kSide, kSide};
+        ren.drawRoundedRect({art.x + 6.f, art.y + 10.f, art.width, art.height},
+                            nxui::Color(0.f, 0.f, 0.f, 0.40f * a), 18.f);
+        ren.drawTextureRounded(&m_lockGameIcon, art, 16.f, ink);
+        ren.drawRoundedRectOutline(art, nxui::Color(1.f, 1.f, 1.f, 0.18f * a), 16.f, 1.5f);
+        if (!m_lockGameName.empty()) {
+            constexpr float kNameW = 520.f;
+            const float w = m_fontNormal.measure(m_lockGameName).x;
+            const float scale = w > kNameW ? std::max(0.6f, kNameW / w) : 1.f;
+            ren.pushClipRect({(kW - kNameW) * 0.5f, art.y + kSide + 12.f, kNameW, 40.f});
+            ren.drawText(m_lockGameName, {(kW - w * scale) * 0.5f, art.y + kSide + 14.f},
+                         &m_fontNormal, ink, scale);
+            ren.popClipRect();
+        }
+    }
+
     if (m_lockMusicShown)
-        renderLockMusic(ren, y, a, album);
+        renderLockMusic(ren, y, a, album, gameCard);
 
     const std::string prompt = lockPromptText();
     const nxui::Vec2 ps = m_fontNormal.measure(prompt);

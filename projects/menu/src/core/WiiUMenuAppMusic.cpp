@@ -737,7 +737,7 @@ bool WiiUMenuApp::lockAlbumStyle() const {
            !(usingLockPassword() && m_lockTask != LockTask::Preview);
 }
 
-void WiiUMenuApp::renderLockMusic(nxui::Renderer& ren, float y, float a, bool album) {
+void WiiUMenuApp::renderLockMusic(nxui::Renderer& ren, float y, float a, bool album, bool overGame) {
     constexpr float kW = 1280.f;
     constexpr float kMargin = 44.f;
     constexpr float kRowTop = 622.f;
@@ -816,7 +816,8 @@ void WiiUMenuApp::renderLockMusic(nxui::Renderer& ren, float y, float a, bool al
     // lower, so there they stay above it (look from HomeNX). Under the cover in
     // the album style.
     constexpr float kBarsW = 620.f;
-    const float kBarsBase = album ? 552.f
+    const bool low = album || overGame;
+    const float kBarsBase = low ? 552.f
         : (usingLockPassword() && m_lockTask != LockTask::Preview ? 392.f : 490.f);
     constexpr int kBands = SpectrumAnalyzer::kBands;
     const float step = kBarsW / static_cast<float>(kBands);
@@ -825,7 +826,7 @@ void WiiUMenuApp::renderLockMusic(nxui::Renderer& ren, float y, float a, bool al
     const bool hasBars = !spotifySource() || m_switify.levelsAvailable();
     for (int i = 0; i < kBands && hasBars; ++i) {
         const float v = m_musicBars[static_cast<std::size_t>(i)];
-        const float h = 3.f + (album ? 48.f : 60.f) * v;
+        const float h = 3.f + (low ? 48.f : 60.f) * v;
         const float x = (kW - kBarsW) * 0.5f + step * static_cast<float>(i) + step * 0.2f;
         ren.drawRoundedRect({x, kBarsBase + y - h, barW, h},
                             nxui::Color(1.f, 1.f, 1.f, (0.35f + 0.5f * v) * a), barW * 0.5f);
@@ -839,7 +840,7 @@ void WiiUMenuApp::renderLockMusic(nxui::Renderer& ren, float y, float a, bool al
             "lockscreen.music_reconnecting", "Reconnecting...");
         // The countdown runs every frame, so it doubles as the blink's clock.
         const float blink = 0.5f + 0.5f * std::cos(m_spotifyReconnecting * 2.f * 3.14159265f);
-        ren.drawText(waiting, {kMargin, (album ? 118.f : 28.f) + y}, &m_fontSmall,
+        ren.drawText(waiting, {kMargin, (low ? 118.f : 28.f) + y}, &m_fontSmall,
                      nxui::Color(1.f, 1.f, 1.f, (0.25f + 0.65f * blink) * a));
     }
 
