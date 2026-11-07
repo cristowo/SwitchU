@@ -1021,6 +1021,20 @@ bool WiiUMenuApp::onCreate() {
     DebugLog::log("[init] loadResources...");
     loadResources();
     DebugLog::log("[init] loadResources done at %lums", initElapsedMs());
+#ifdef SWITCHU_MENU
+    // Waking over a title: the lock goes up now that the fonts are in, not
+    // after the grid (about a second of the dimmed frame alone).
+    if (m_lockScreenOnStart && m_config.lockScreenEnabled && m_launcher.suspendedTitleId() != 0) {
+        showLockScreen(true);
+        auto& ren = app().renderer();
+        app().gpu().beginFrame();
+        ren.beginFrame();
+        renderLockScreen(ren);
+        ren.endFrame();
+        app().gpu().endFrame();
+        DebugLog::log("[init] early lock frame at %lums", initElapsedMs());
+    }
+#endif
     DebugLog::log("[init] buildGrid...");
     buildGrid();
     DebugLog::log("[init] buildGrid done at %lums", initElapsedMs());
@@ -7534,8 +7548,11 @@ void WiiUMenuApp::enterSystemSleep() {
     // presented frame. That frame is black (renderLockScreen), so neither the
     // lock on the way down nor HOME on the way up shows: the lock is set here and
     // is the first thing drawn on wake. onAfterPresent() finishes the handoff.
-    if (lockScreenApplies() && !m_lockScreenActive) {
-        showLockScreen(m_lockGameBackdrop);
+    // Also with the lock already up: its last frame (old clock, old song) was
+    // what the screen came back on.
+    if (lockScreenApplies()) {
+        if (!m_lockScreenActive)
+            showLockScreen(m_lockGameBackdrop);
         m_sleepAfterPresent = true;
         app().requestFullRate();
         return;
@@ -7945,7 +7962,9 @@ void WiiUMenuApp::unlockLockScreen() {
 void WiiUMenuApp::renderLockScreen(nxui::Renderer& ren) {
     constexpr float kW = 1280.f;
     constexpr float kH = 720.f;
-    if (m_sleepAfterPresent) {
+    // The last frame before the dark is what the screen comes back on: black,
+    // not a lock with the time and song from when it went off.
+    if (m_sleepAfterPresent || m_screenOff) {
         ren.drawRect({0.f, 0.f, kW, kH}, nxui::Color(0.f, 0.f, 0.f, 1.f));
         return;
     }
