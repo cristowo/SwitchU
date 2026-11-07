@@ -254,6 +254,7 @@ private:
     bool screenOffMusicOn() const { return (m_config.screenOffMusicSources & activeMusicSource()) != 0; }
     void updateLockMusic();
     void resumeSpotifyAfterSleep();
+    bool spotifyWaking() const;
     // Measures the music only while bars are on screen (lock or widget).
     void updateMusicBars(float dt);
     // album: the cover in the middle with a record behind it (lockAlbumSources).
@@ -854,6 +855,9 @@ private:
     // After a wake, until sound is heard: the wait is Wi-Fi returning, and with no
     // sign of it the song looks dead.
     float m_spotifyReconnecting = 0.f;
+    // After a wake: what the lock showed before the sleep stays until Switify
+    // plays again (or this runs out).
+    float m_spotifyWakeHold = 0.f;
     // Switify starts paused: asked to start, keep asking for Play until it plays.
     bool m_switifyAutoPlay = false;
     float m_switifyAutoPlayElapsed = 0.f;

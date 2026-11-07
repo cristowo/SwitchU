@@ -650,9 +650,18 @@ void WiiUMenuApp::resumeSpotifyAfterSleep() {
     m_spotifyPausedForSleep = false;
     DebugLog::log("[power] resuming spotify");
     m_spotifyReconnecting = 45.f;
+    m_spotifyWakeHold = 10.f;
     // Nursing the old stream back kept failing in new ways. Switify waits for the
     // connection and starts the same song afresh, where it was.
     m_switify.send(sw::IpcCommand::ReloadCurrent);
+}
+
+bool WiiUMenuApp::spotifyWaking() const {
+    // Paused for the sleep, or sent back to play: Switify reports no song for
+    // about a second after a wake while it gets ready again.
+    // Not m_spotifyReconnecting: the levels from before the sleep end it on the
+    // first frame, and the lock dropped to its plain look for that second.
+    return spotifySource() && (m_spotifyPausedForSleep || m_spotifyWakeHold > 0.f);
 }
 
 void WiiUMenuApp::updateLockMusic() {
@@ -663,19 +672,20 @@ void WiiUMenuApp::updateLockMusic() {
         // would cover.
         if (spotifySource()) {
             const auto now = m_switify.nowPlaying();
-            hasTrack = now.controllable() && now.hasTrack;
+            // Waking, the song from before the sleep stays (the album look
+            // dropped to the plain one for that second).
+            hasTrack = (now.controllable() && now.hasTrack)
+                || (spotifyWaking() && m_nowPlayingView.hasTrack);
             // Reconnecting after a wake counts as playing: the lock's idle rule
             // put the console back to sleep mid-reconnect, and the song stayed off.
-            m_lockMusicPlaying = hasTrack && (now.playing || now.reloading ||
-                                              m_spotifyReconnecting > 0.f);
+            m_lockMusicPlaying = hasTrack && (now.playing || now.reloading || spotifyWaking());
         } else if (lockAllowsLocalMusic()) {
             const int index = m_audio.currentIndex();
             hasTrack = index >= 0 && index < m_audio.trackCount();
             m_lockMusicPlaying = hasTrack && m_audio.isPlaying();
         }
     }
-    m_lockMusicShown = hasTrack && (m_lockMusicPlaying || m_lockMusicKeep ||
-                                    (m_spotifyReconnecting > 0.f && spotifySource()));
+    m_lockMusicShown = hasTrack && (m_lockMusicPlaying || m_lockMusicKeep || spotifyWaking());
     // Bars and shapes move; otherwise only the clock does.
     app().setIdlePresentStride(m_lockMusicShown || (m_config.lockShapes && !m_lockGameBackdrop) ? 0 : 6);
 }
@@ -698,6 +708,12 @@ void WiiUMenuApp::updateMusicBars(float dt) {
         onScreen = false;
 
     m_spotifyReconnecting = std::max(0.f, m_spotifyReconnecting - dt);
+    // Decided at the sleep, let go only once the song plays again.
+    {
+        const auto now = m_switify.nowPlaying();
+        m_spotifyWakeHold = now.controllable() && now.hasTrack && now.playing
+            ? 0.f : std::max(0.f, m_spotifyWakeHold - dt);
+    }
     // Slowly, while it plays.
     if (m_lockScreenActive && m_lockMusicPlaying)
         m_lockDiscAngle = std::fmod(m_lockDiscAngle + dt * 1.9f, 6.2831853f); // ~18 rpm
@@ -953,6 +969,8 @@ void WiiUMenuApp::pollMusicLink(float dt) {
 
     // Always: the music tile in the top bar shows it too.
     const NowPlayingView view = currentNowPlayingView();
-    if (!(view == m_nowPlayingView) || view.coverKey != m_nowPlayingCoverKey)
+    // Waking: keep the song until Switify is ready to report it again.
+    const bool hold = spotifyWaking() && !view.hasTrack && m_nowPlayingView.hasTrack;
+    if (!hold && (!(view == m_nowPlayingView) || view.coverKey != m_nowPlayingCoverKey))
         refreshNowPlayingWidgets(view);
 }
