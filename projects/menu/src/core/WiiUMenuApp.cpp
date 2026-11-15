@@ -470,6 +470,8 @@ bool WiiUMenuApp::presentInitialFrame(nxui::Renderer& ren) {
         stbi_image_free(pixels);
     });
 
+    // Its own thread; the first frame's poll then finds the song and its cover.
+    m_switify.start();
     // Ahead of the rest: onCreate() waits for this one first.
     m_startupData = m_threadPool.submit([this]() { loadStartupData(); });
     {
@@ -920,6 +922,8 @@ void WiiUMenuApp::updateLeaveSplashHandoff(float dt) {
                 line ? std::max(0, m_grid->focusedGlobalIndex()) : m_grid->currentPage(),
                 line ? 1 : std::max(1, m_grid->iconsPerPage()));
         }
+        // A wide tile's logo too: it came in a moment after HOME showed.
+        filling = filling || visibleGameArtworkPending();
         constexpr float kFillPatience = 0.35f;
         if (m_leaveSplashHoldRemaining <= 0.f && filling && m_leaveSplashFillWait < kFillPatience) {
             m_leaveSplashFillWait += dt;
@@ -3297,6 +3301,24 @@ void WiiUMenuApp::pollRecentWidgetAssets() {
     }
 }
 
+bool WiiUMenuApp::visibleGameArtworkPending() const {
+    if (!m_grid || m_appLayoutMode != AppLayoutMode::Grid)
+        return false;
+    const auto& icons = m_grid->allIcons();
+    const int perPage = std::max(1, m_grid->iconsPerPage());
+    const int begin = m_grid->currentPage() * perPage;
+    const int end = std::min(begin + perPage, static_cast<int>(icons.size()));
+    for (int i = std::max(0, begin); i < end; ++i) {
+        const auto* icon = icons[static_cast<std::size_t>(i)].get();
+        if (icon && icon->entryKind() == GridEntryKind::Application
+            && switchu::widgets::isLandscapeWideGameTile(icon->gridSpanColumns(),
+                                                         icon->gridSpanRows())
+            && !m_gameArtwork.count(icon->titleId()))
+            return true;
+    }
+    return false;
+}
+
 void WiiUMenuApp::ensureGameArtwork(std::uint64_t titleId) {
     if (titleId == 0 || m_gameArtwork.count(titleId)) return;
     if ((m_gameArtworkDecode && m_gameArtworkDecode->titleId == titleId) ||
@@ -3346,7 +3368,7 @@ void WiiUMenuApp::startNextGameArtworkDecode() {
         }
         state->elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - started).count();
-    });
+    }, true); // ahead of the icons queued for the other pages
     DebugLog::log("[game-artwork] queued title=0x%016lX remaining=%zu",
                   static_cast<unsigned long>(titleId),
                   m_gameArtworkDecodeQueue.size());
@@ -8477,8 +8499,13 @@ void WiiUMenuApp::pollSleepNotifications() {
         if (notif.magic != switchu::smi::kNotifyMagic)
             continue;
         DebugLog::log("[power] sleep-time notify msg=%u", (unsigned)notif.msg);
-        if (notif.msg == switchu::smi::MenuMessage::WakeUp)
+        if (notif.msg == switchu::smi::MenuMessage::WakeUp) {
             leaveSystemSleep();
+            // The daemon sends the battery's state right after: read here it
+            // was dropped, and the lock kept the level and charging state from
+            // before the sleep until the level changed again.
+            break;
+        }
     }
 #endif
 }

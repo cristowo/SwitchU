@@ -1166,6 +1166,8 @@ private:
     std::string m_glyphMemo[2];
     std::size_t m_idleWarmNext = 0;
     void saveStartupGlyphs();
+    // A wide tile on the page shown still without its logo/hero.
+    bool visibleGameArtworkPending() const;
     void warmNextGlyph();
     std::uint64_t m_profTtfMicros = 0;
     unsigned m_profTextCount = 0;

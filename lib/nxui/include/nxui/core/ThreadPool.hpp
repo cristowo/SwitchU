@@ -10,7 +10,7 @@
 #include <atomic>
 #include <functional>
 #include <future>
-#include <queue>
+#include <deque>
 #include <mutex>
 #include <condition_variable>
 #include <thread>
@@ -76,7 +76,8 @@ public:
     ThreadPool& operator=(const ThreadPool&) = delete;
 
     /// Submit a task. Returns a future that resolves when the task completes.
-    std::future<void> submit(std::function<void()> task) {
+    /// `urgent` runs it before the tasks already waiting.
+    std::future<void> submit(std::function<void()> task, bool urgent = false) {
         auto promise = std::make_shared<std::promise<void>>();
         auto future  = promise->get_future();
 
@@ -87,14 +88,18 @@ public:
                     std::runtime_error("ThreadPool is shutting down")));
                 return future;
             }
-            m_queue.push([t = std::move(task), p = std::move(promise)]() {
+            auto job = [t = std::move(task), p = std::move(promise)]() {
                 try {
                     t();
                     p->set_value();
                 } catch (...) {
                     p->set_exception(std::current_exception());
                 }
-            });
+            };
+            if (urgent)
+                m_queue.push_front(std::move(job));
+            else
+                m_queue.push_back(std::move(job));
         }
         m_cv.notify_one();
         return future;
@@ -110,14 +115,14 @@ private:
                 m_cv.wait(lk, [this]() { return m_stop || !m_queue.empty(); });
                 if (m_stop && m_queue.empty()) return;
                 task = std::move(m_queue.front());
-                m_queue.pop();
+                m_queue.pop_front();
             }
             task();
         }
     }
 
     std::vector<std::thread>            m_workers;
-    std::queue<std::function<void()>>   m_queue;
+    std::deque<std::function<void()>>   m_queue;
     mutable std::mutex                  m_mutex;
     std::condition_variable             m_cv;
     bool                                m_stop = false;
