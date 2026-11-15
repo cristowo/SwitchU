@@ -1128,6 +1128,17 @@ private:
     };
     std::shared_ptr<DeferredProfileList> m_deferredProfileList;
     std::future<void> m_deferredProfileListFuture;
+    // The theme's background, decoded on a worker while the title's frame
+    // shrinks away (nothing else can load then). The path is the last one used.
+    static constexpr const char* kBackgroundMemoPath = "sdmc:/config/SwitchU/cache/last_background.txt";
+    std::future<void> m_bgPreloadFuture;
+    std::string m_bgMemoPath;
+    std::string m_bgPreloadPath;
+    std::vector<std::uint8_t> m_bgPreloadRgba;
+    int m_bgPreloadW = 0;
+    int m_bgPreloadH = 0;
+    std::uint64_t m_profUpdateEndTick = 0;
+    int m_profFrames = 0;
     std::vector<AccountUid> m_pendingProfileUids;
     std::size_t m_pendingProfileIndex = 0;
     std::future<void> m_accessibilityFuture;
@@ -1152,7 +1163,7 @@ private:
     bool m_leaveMotionFrozen = false;
     bool m_leaveMotionFreezePending = false;
     static constexpr float kLeaveSplashHoldDur = 0.06f;
-    static constexpr float kLeaveSplashFadeDur = 0.25f;
+    static constexpr float kLeaveSplashFadeDur = 0.15f;
     static constexpr float kGameFrameRevealDur = 0.32f;
 
     bool  m_audioInitPending = false;

@@ -166,6 +166,15 @@ bool WaraWaraBackground::loadImage(nxui::GpuDevice& gpu, nxui::Renderer& ren, co
     return true;
 }
 
+bool WaraWaraBackground::loadImagePixels(nxui::GpuDevice& gpu, nxui::Renderer& ren,
+                                         const std::uint8_t* rgba, int width, int height) {
+    nxui::Texture texture;
+    if (!texture.loadFromPixels(gpu, ren, rgba, width, height))
+        return false;
+    m_backgroundImage = std::move(texture);
+    return true;
+}
+
 void WaraWaraBackground::clearImage() {
     m_backgroundImage = nxui::Texture{};
 }

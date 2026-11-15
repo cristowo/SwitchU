@@ -233,7 +233,9 @@ static constexpr uint64_t kMenuEarlyExitNs = 10'000'000'000ULL;
 // Happy-path settle before Album launch. Idle stays snappy; suspended titles
 // get a short vi/layer quiet window. Longer settle is only on soft retry.
 static constexpr uint64_t kHomeMenuSettleNsIdle = 80'000'000ULL;        // ~80ms
-static constexpr uint64_t kHomeMenuSettleNsSuspended = 300'000'000ULL;  // ~300ms
+// Was 300 ms. Back to that if HOME over a title starts opening black
+// (the gfx watchdog relaunches the menu, which costs far more).
+static constexpr uint64_t kHomeMenuSettleNsSuspended = 150'000'000ULL;
 static constexpr uint64_t kHomeMenuGfxFailSettleNs = 2'500'000'000ULL; // 2.5s before sole relaunch
 static constexpr const char* kLastGfxFailPath = "sdmc:/config/SwitchU/last_gfx_fail.txt";
 static uint64_t g_lastMenuLaunchTick = 0;

@@ -1,4 +1,5 @@
 #include "WiiUMenuApp.hpp"
+#include <nxui/third_party/stb/stb_image.h>
 #include <switchu/operation_mode.hpp>
 #include "icons/IconPackManager.hpp"
 #include <switchu/sd_commit.hpp>
@@ -449,6 +450,25 @@ bool WiiUMenuApp::presentInitialFrame(nxui::Renderer& ren) {
 #ifdef SWITCHU_MENU
     if (!m_fastReturnRequested)
         return false;
+
+    m_bgPreloadFuture = m_threadPool.submit([this]() {
+        std::ifstream memo(kBackgroundMemoPath);
+        std::getline(memo, m_bgMemoPath);
+        if (m_bgMemoPath.empty())
+            return;
+        int w = 0, h = 0, channels = 0;
+        stbi_uc* pixels = stbi_load(m_bgMemoPath.c_str(), &w, &h, &channels, 4);
+        if (!pixels)
+            return;
+        // Larger ones are scaled by the usual path.
+        if (w > 0 && h > 0 && w <= 1280 && h <= 1280) {
+            m_bgPreloadRgba.assign(pixels, pixels + static_cast<std::size_t>(w) * h * 4);
+            m_bgPreloadW = w;
+            m_bgPreloadH = h;
+            m_bgPreloadPath = m_bgMemoPath;
+        }
+        stbi_image_free(pixels);
+    });
 
     LeaveFrameImage image;
     if (LeaveFrameCache::load(m_leaveSession, image) && image.valid()
@@ -1049,6 +1069,11 @@ bool WiiUMenuApp::onCreate() {
     DebugLog::log("[init] buildGrid...");
     buildGrid();
     DebugLog::log("[init] buildGrid done at %lums", initElapsedMs());
+    // The theme took the preloaded background, or has no use for it.
+    if (m_bgPreloadFuture.valid()) {
+        try { m_bgPreloadFuture.get(); } catch (...) {}
+    }
+    m_bgPreloadRgba = {};
 
 #ifdef SWITCHU_MENU
     if (m_startupFailure.result != 0 && m_dialog) {
@@ -7495,6 +7520,7 @@ void WiiUMenuApp::onUpdate(float dt) {
     }
 
     onUpdateAwake(dt);
+    m_profUpdateEndTick = armGetSystemTick();
 }
 
 void WiiUMenuApp::enterScreenOff() {
@@ -8704,6 +8730,17 @@ void WiiUMenuApp::tickFrameTapLightPath(float dt) {
 }
 
 void WiiUMenuApp::onUpdateAwake(float dt) {
+    // Startup only: what the first frames spend their time on.
+    const bool prof = m_profFrames < 5;
+    std::uint64_t profTick = armGetSystemTick();
+    const auto lap = [&](const char* what) {
+        if (!prof) return;
+        const std::uint64_t now = armGetSystemTick();
+        const unsigned long ms = static_cast<unsigned long>(armTicksToNs(now - profTick) / 1'000'000ULL);
+        if (ms >= 8)
+            DebugLog::log("[startup] frame=%d %s %lums", m_profFrames, what, ms);
+        profTick = now;
+    };
     if (m_wakePostSwapchainFrames > 0) {
         const int step = m_wakePostSwapchainFrames;
         --m_wakePostSwapchainFrames;
@@ -8740,12 +8777,16 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
     // Widget-owned images are intentionally managed before recording the next
     // frame. This is the only safe point to retire Deko textures from pages
     // that have left the screen and to warm the next page.
+    lap("lock+bars+splash");
     syncWidgetPageAssets();
+    lap("widget assets");
     // Reading and decoding happens on a worker. Transfer at most one recent
     // widget texture to the GPU per frame so returning HOME remains smooth.
     pollRecentWidgetAssets();
+    lap("recent widget");
     g_uiStage.store("music link");
     pollMusicLink(dt);
+    lap("music link");
     g_uiStage.store("update");
     pollThumbnailAtlases(dt);
     pollGameArtworkAssets();
@@ -9113,6 +9154,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
     }
 #endif
 
+    lap("thumbs+artwork+text+input");
     syncSoftwareDeletion();
 
     if (!m_accessibilityReady && m_accessibilityFuture.valid() &&
@@ -9129,6 +9171,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
     }
 
     updateLayoutTransition(dt);
+    lap("layout transition");
 
     int streamPage = 0;
     int streamPageSize = 1;
@@ -9229,6 +9272,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         g_uiStage.store("update");
     }
 
+    lap("streamer+profiles+audio");
     syncThemePackageTransfer();
     retryPendingBackgroundImage();
 
@@ -9257,6 +9301,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
             DebugLog::log("[init] deferred initial icon/sidebar uploads done");
         }
     }
+    lap("deferred assets");
 
     // Public HTTPS clock sync once per boot (failure toast only; retry until online).
     if (m_config.webClockSyncEnabled && !m_webClockBootSyncStarted) {
@@ -11060,6 +11105,13 @@ void WiiUMenuApp::renderDeletePageButton(nxui::Renderer& ren) {
 
 void WiiUMenuApp::onRender(nxui::Renderer& ren) {
     g_uiStage.store("render");
+    if (m_profFrames < 5) {
+        // The widget tree is drawn before this: its time is since the update.
+        DebugLog::log("[startup] frame=%d widget tree render %lums", m_profFrames,
+                      static_cast<unsigned long>(
+                          armTicksToNs(armGetSystemTick() - m_profUpdateEndTick) / 1'000'000ULL));
+        ++m_profFrames;
+    }
     if (m_folderCaptureRequested) {
         if (ren.gpu().offscreenReady()) {
             // Cache one complete HOME frame, then use the fork's compact,

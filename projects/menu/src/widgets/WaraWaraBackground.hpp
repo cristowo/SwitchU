@@ -62,6 +62,9 @@ public:
     const Config& config() const { return m_config; }
 
     bool loadImage(nxui::GpuDevice& gpu, nxui::Renderer& ren, const std::string& path);
+    // Already decoded (RGBA, at most 1280 a side).
+    bool loadImagePixels(nxui::GpuDevice& gpu, nxui::Renderer& ren,
+                         const std::uint8_t* rgba, int width, int height);
     void clearImage();
 
     void setMotionPaused(bool paused) { m_motionPaused = paused; }

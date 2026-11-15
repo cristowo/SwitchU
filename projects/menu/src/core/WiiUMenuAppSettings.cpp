@@ -3640,7 +3640,24 @@ void WiiUMenuApp::applyThemeResources(const ThemePreset& preset) {
             applyFrameTapLiteBackground(true);
 
         if (backgroundImageNeedsReload) {
-            const bool imageLoaded = imageExists && m_background->loadImage(gpu, ren, backgroundImagePath);
+            bool imageLoaded = false;
+            if (imageExists) {
+                if (m_bgPreloadFuture.valid()) {
+                    try { m_bgPreloadFuture.get(); } catch (...) {}
+                }
+                if (m_bgPreloadPath == backgroundImagePath && !m_bgPreloadRgba.empty())
+                    imageLoaded = m_background->loadImagePixels(
+                        gpu, ren, m_bgPreloadRgba.data(), m_bgPreloadW, m_bgPreloadH);
+                DebugLog::log("[theme-apply] background preloaded=%d", imageLoaded ? 1 : 0);
+                m_bgPreloadRgba = {};
+                if (!imageLoaded)
+                    imageLoaded = m_background->loadImage(gpu, ren, backgroundImagePath);
+            }
+            // Next start decodes it ahead (presentInitialFrame).
+            if (imageLoaded && m_bgMemoPath != backgroundImagePath) {
+                m_bgMemoPath = backgroundImagePath;
+                std::ofstream(kBackgroundMemoPath, std::ios::trunc) << backgroundImagePath;
+            }
             DebugLog::log("[theme-apply] background image: path=%s exists=%d reloaded=%d loaded=%d",
                           safeLogPath(backgroundImagePath),
                           imageExists ? 1 : 0,
@@ -4235,7 +4252,9 @@ void WiiUMenuApp::syncColourIconContrast() {
     if (m_layoutFlip)
         m_layoutFlip->setColourIconContrast(adaptColour);
 
-    if (hslChanged) {
+    // Starting from a title the icons load once, after the first frame
+    // (m_deferredInitialAssetFrames), already with this adjust.
+    if (hslChanged && m_deferredInitialAssetFrames == 0) {
         // Rebake colour glyphs (and Change View) with the new HSL adjust.
         // Do not log the unchanged path — syncColourIconContrast runs every
         // frame from updateHeroAwareChrome; SD log spam soft-locks the console.
