@@ -99,6 +99,11 @@ SettingsScreen::Tab settings::tabs::SleepTab::build(SettingsScreen& screen) {
     }
 
     {
+        SettingItem it; it.label = i18n.tr("settings.sleep.lock_more", "Lock Screen"); it.type = ItemType::Section;
+        t.items.push_back(std::move(it));
+    }
+
+    {
         SettingItem it; it.label = i18n.tr("settings.sleep.lock_screen", "Lock Screen"); it.type = ItemType::Toggle;
         it.description = i18n.tr("settings.sleep.lock_screen_desc",
             "Show the lock screen when the console wakes from sleep.");
@@ -136,63 +141,6 @@ SettingsScreen::Tab settings::tabs::SleepTab::build(SettingsScreen& screen) {
             screen.m_lockCascade = self.boolVal;
             if (screen.m_lockCascadeCb)
                 screen.m_lockCascadeCb(self.boolVal);
-        };
-        t.items.push_back(std::move(it));
-    }
-
-    // A checklist: the option's heading, then one box per music source.
-    // Bits as in Config.hpp: 1 HOME's own songs, 2 Spotify.
-    const auto addSourceChecklist = [&](const std::string& heading, const std::string& desc,
-                                        int& sources, auto& callback) {
-        SettingItem head; head.label = heading; head.type = ItemType::Section;
-        t.items.push_back(std::move(head));
-        const std::pair<int, std::string> choices[] = {
-            {1, i18n.tr("settings.sleep.source_songs", "Menu songs")},
-            {2, i18n.tr("settings.sleep.source_spotify", "Spotify")},
-        };
-        for (const auto& [bit, label] : choices) {
-            SettingItem it; it.label = label; it.type = ItemType::Toggle;
-            it.description = desc;
-            it.indentLevel = 1;
-            it.boolVal = (sources & bit) != 0;
-            it.anim01 = it.boolVal ? 1.f : 0.f;
-            it.onChange = [&sources, &callback, bit](SettingItem& self) {
-                sources = self.boolVal ? (sources | bit) : (sources & ~bit);
-                if (callback)
-                    callback(sources);
-            };
-            t.items.push_back(std::move(it));
-        }
-    };
-
-    addSourceChecklist(i18n.tr("settings.sleep.lock_music", "Music on the Lock Screen"),
-        i18n.tr("settings.sleep.lock_music_desc",
-            "While a song plays on the lock screen: bars, its name and cover, and controls on L, R and ZR. The screen stays on while it plays."),
-        screen.m_lockMusic, screen.m_lockMusicCb);
-    addSourceChecklist(i18n.tr("settings.sleep.lock_album", "Cover on the Lock Screen"),
-        i18n.tr("settings.sleep.lock_album_desc",
-            "While it plays, the song's cover takes the middle of the lock screen, with a spinning record and the bars below. Not with a password, which needs the middle."),
-        screen.m_lockStyle, screen.m_lockStyleCb);
-    addSourceChecklist(i18n.tr("settings.sleep.screen_off_music", "Music With the Screen Off"),
-        i18n.tr("settings.sleep.screen_off_music_desc",
-            "In HOME, handheld: while music plays, the power button only turns the screen off. The console stays awake and uses more battery than in sleep mode."),
-        screen.m_screenOffMusic, screen.m_screenOffMusicCb);
-
-    {
-        SettingItem it; it.label = i18n.tr("settings.sleep.lock_more", "Lock Screen"); it.type = ItemType::Section;
-        t.items.push_back(std::move(it));
-    }
-
-    {
-        SettingItem it; it.label = i18n.tr("settings.sleep.music_keeps_awake", "No Auto-Sleep With Music"); it.type = ItemType::Toggle;
-        it.description = i18n.tr("settings.sleep.music_keeps_awake_desc",
-            "In HOME and on the lock screen: while music plays, the console does not go to sleep by itself. It still does with the power button.");
-        it.boolVal = screen.m_musicKeepsAwake;
-        it.anim01 = it.boolVal ? 1.f : 0.f;
-        it.onChange = [&screen](SettingItem& self) {
-            screen.m_musicKeepsAwake = self.boolVal;
-            if (screen.m_musicKeepsAwakeCb)
-                screen.m_musicKeepsAwakeCb(self.boolVal);
         };
         t.items.push_back(std::move(it));
     }
@@ -265,6 +213,63 @@ SettingsScreen::Tab settings::tabs::SleepTab::build(SettingsScreen& screen) {
         it.onChange = [&screen](SettingItem&) {
             if (screen.m_lockPreviewCb)
                 screen.m_lockPreviewCb();
+        };
+        t.items.push_back(std::move(it));
+    }
+
+    {
+        SettingItem it; it.label = i18n.tr("settings.sleep.music_section", "Music"); it.type = ItemType::Section;
+        t.items.push_back(std::move(it));
+    }
+
+    // One row per option: which music it applies to. The index is the source
+    // mask itself (Config.hpp: 1 HOME's own songs, 2 Spotify, 3 both).
+    const auto addSourceSelector = [&](const std::string& label, const std::string& desc,
+                                       int& sources, auto& callback) {
+        SettingItem it; it.label = label; it.type = ItemType::Selector;
+        it.description = desc;
+        it.options = {
+            i18n.tr("settings.sleep.source_none", "Off"),
+            i18n.tr("settings.sleep.source_songs", "Menu songs"),
+            i18n.tr("settings.sleep.source_spotify", "Spotify"),
+            i18n.tr("settings.sleep.source_both", "Both"),
+        };
+        it.intVal = std::clamp(sources, 0, 3);
+        it.onChange = [&sources, &callback](SettingItem& self) {
+            sources = std::clamp(self.intVal, 0, 3);
+            if (callback)
+                callback(sources);
+        };
+        t.items.push_back(std::move(it));
+    };
+
+    addSourceSelector(i18n.tr("settings.sleep.music_chip", "Song Tile in HOME"),
+        i18n.tr("settings.sleep.music_chip_desc",
+            "At the top left of HOME, next to the profile: the cover and bars of the song that is playing."),
+        screen.m_musicChip, screen.m_musicChipCb);
+    addSourceSelector(i18n.tr("settings.sleep.lock_music", "Music on the Lock Screen"),
+        i18n.tr("settings.sleep.lock_music_desc",
+            "While a song plays on the lock screen: bars, its name and cover, and controls on L, R and ZR. The screen stays on while it plays."),
+        screen.m_lockMusic, screen.m_lockMusicCb);
+    addSourceSelector(i18n.tr("settings.sleep.lock_album", "Cover on the Lock Screen"),
+        i18n.tr("settings.sleep.lock_album_desc",
+            "While it plays, the song's cover takes the middle of the lock screen, with a spinning record and the bars below. Not with a password, which needs the middle."),
+        screen.m_lockStyle, screen.m_lockStyleCb);
+    addSourceSelector(i18n.tr("settings.sleep.screen_off_music", "Music With the Screen Off"),
+        i18n.tr("settings.sleep.screen_off_music_desc",
+            "In HOME, handheld: while music plays, the power button only turns the screen off. The console stays awake and uses more battery than in sleep mode."),
+        screen.m_screenOffMusic, screen.m_screenOffMusicCb);
+
+    {
+        SettingItem it; it.label = i18n.tr("settings.sleep.music_keeps_awake", "No Auto-Sleep With Music"); it.type = ItemType::Toggle;
+        it.description = i18n.tr("settings.sleep.music_keeps_awake_desc",
+            "In HOME and on the lock screen: while music plays, the console does not go to sleep by itself. It still does with the power button.");
+        it.boolVal = screen.m_musicKeepsAwake;
+        it.anim01 = it.boolVal ? 1.f : 0.f;
+        it.onChange = [&screen](SettingItem& self) {
+            screen.m_musicKeepsAwake = self.boolVal;
+            if (screen.m_musicKeepsAwakeCb)
+                screen.m_musicKeepsAwakeCb(self.boolVal);
         };
         t.items.push_back(std::move(it));
     }

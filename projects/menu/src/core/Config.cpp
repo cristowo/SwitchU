@@ -110,6 +110,8 @@ bool AppConfig::load() {
         readJsonOpt(j, "lockAlbumSources", lockAlbumSources);
         lockAlbumSources = std::clamp(lockAlbumSources, 0, kMusicSourceSongs | kMusicSourceSpotify);
     }
+    readJsonOpt(j, "musicChipSources", musicChipSources);
+    musicChipSources = std::clamp(musicChipSources, 0, kMusicSourceSongs | kMusicSourceSpotify);
     readJsonOpt(j, "glassEffects", glassEffects);
     readJsonOpt(j, "lockPicturePath", lockPicturePath);
     readJsonOpt(j, "webClockSyncEnabled", webClockSyncEnabled);
@@ -305,6 +307,7 @@ bool AppConfig::save() const {
     j["screenOffMusicSources"] = screenOffMusicSources;
     j["musicKeepsAwake"] = musicKeepsAwake;
     j["lockAlbumSources"] = lockAlbumSources;
+    j["musicChipSources"] = musicChipSources;
     j["glassEffects"] = glassEffects;
     j["lockPicturePath"] = lockPicturePath;
     j["webClockSyncEnabled"] = webClockSyncEnabled;

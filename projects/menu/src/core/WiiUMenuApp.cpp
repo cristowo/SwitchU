@@ -1628,8 +1628,10 @@ void WiiUMenuApp::placeMusicChip() {
         return;
     const nxui::Rect lock = m_profileLock->rect();
     m_musicChip->setRect({lock.x + lock.width + 12.f, lock.y, lock.width, lock.height});
+    // Per source (Settings, Sleep): the one playing now decides.
     const bool show = m_topHud && m_topHud->isVisible() && m_openFolderId == 0 &&
-                      m_nowPlayingView.hasTrack;
+                      m_nowPlayingView.hasTrack &&
+                      (m_config.musicChipSources & activeMusicSource()) != 0;
     if (show == m_musicChip->isVisible())
         return;
     if (!show && focusManager().current() == m_musicChip.get())

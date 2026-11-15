@@ -36,6 +36,7 @@ public:
     void onScreenOffMusicChange(IntCb cb) { m_screenOffMusicCb = std::move(cb); }
     void onMusicKeepsAwakeChange(BoolCb cb) { m_musicKeepsAwakeCb = std::move(cb); }
     void onLockStyleChange(IntCb cb) { m_lockStyleCb = std::move(cb); }
+    void onMusicChipChange(IntCb cb) { m_musicChipCb = std::move(cb); }
     void onGlassEffectsChange(BoolCb cb) { m_glassEffectsCb = std::move(cb); }
     void onLockPictureChange(StringCb cb) { m_lockPictureCb = std::move(cb); }
     void onLockPasswordAction(VoidCb cb) { m_lockPasswordCb = std::move(cb); }
@@ -101,6 +102,7 @@ public:
     void setScreenOffMusicState(int sources) { m_screenOffMusic = sources; }
     void setMusicKeepsAwakeState(bool enabled) { m_musicKeepsAwake = enabled; }
     void setLockStyleState(int style) { m_lockStyle = style; }
+    void setMusicChipState(int sources) { m_musicChip = sources; }
     void setGlassEffectsState(bool enabled) { m_glassEffects = enabled; }
     void setLockPictureState(const std::string& path) { m_lockPicturePath = path; }
     void setWebClockSyncState(bool enabled) {
@@ -177,6 +179,7 @@ private:
     IntCb m_screenOffMusicCb;
     BoolCb m_musicKeepsAwakeCb;
     IntCb m_lockStyleCb;
+    IntCb m_musicChipCb;
     BoolCb m_glassEffectsCb;
     StringCb m_lockPictureCb;
     VoidCb m_lockPasswordCb;
@@ -218,6 +221,7 @@ private:
     int m_screenOffMusic = 0;
     bool m_musicKeepsAwake = true;
     int m_lockStyle = 0;
+    int m_musicChip = 3;
     bool m_glassEffects = true;
     std::string m_lockPicturePath;
     bool m_webClockSyncEnabled = false;

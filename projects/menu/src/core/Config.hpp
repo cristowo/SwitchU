@@ -54,6 +54,8 @@ struct AppConfig {
     int   screenOffMusicSources = 0;
     bool  musicKeepsAwake = true; // no auto-sleep while music plays
     int   lockAlbumSources = 0;   // the album lock screen: cover, spinning record
+    // The song tile next to the profile in HOME (it was always shown).
+    int   musicChipSources = kMusicSourceSongs | kMusicSourceSpotify;
     // Off: frosted panels without the shader glass or blur.
     bool  glassEffects = true;
     // Lock screen picture; empty means what is on screen, frosted.

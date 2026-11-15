@@ -309,6 +309,7 @@ void WiiUMenuApp::createSettings() {
     m_settings->setScreenOffMusicState(m_config.screenOffMusicSources);
     m_settings->setMusicKeepsAwakeState(m_config.musicKeepsAwake);
     m_settings->setLockStyleState(m_config.lockAlbumSources);
+    m_settings->setMusicChipState(m_config.musicChipSources);
     m_settings->setGlassEffectsState(m_config.glassEffects);
     m_settings->setLockPictureState(m_config.lockPicturePath);
     m_settings->setWebClockSyncState(m_config.webClockSyncEnabled);
@@ -411,6 +412,12 @@ void WiiUMenuApp::createSettings() {
     });
     m_settings->onLockStyleChange([this](int sources) {
         m_config.lockAlbumSources = sources;
+    });
+    m_settings->onMusicChipChange([this](int sources) {
+        m_config.musicChipSources = sources;
+        // Now: the tile, the focus if it was on it, and the top bar's
+        // left/right order all follow (placeMusicChip).
+        placeMusicChip();
     });
     m_settings->onGlassEffectsChange([this](bool enabled) {
         m_config.glassEffects = enabled;
