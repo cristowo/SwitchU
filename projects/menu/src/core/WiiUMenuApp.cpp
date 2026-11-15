@@ -483,12 +483,12 @@ bool WiiUMenuApp::presentInitialFrame(nxui::Renderer& ren) {
     if (m_startFromGame)
         loadGameFrame(ren);
     if (m_lockScreenOnStart) {
-        // Waking: that frame, dimmed like the lock screen about to go over it.
-        if (m_gameFrameTex.valid())
+        // Waking: that frame as it was, the lock then comes in whole over it
+        // (dimmed alone first, it read as a step of its own).
+        if (m_gameFrameTex.valid() && !m_sleepPrepare)
             ren.drawTexture(&m_gameFrameTex, {0.f, 0.f, 1280.f, 720.f});
         else
             ren.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 1.f));
-        ren.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.72f));
     } else if (m_gameFrameTex.valid()) {
         // Going to HOME: the title's frame shrinks away over the HOME snapshot.
         // These frames are presented here, before the menu starts loading,
@@ -1018,21 +1018,32 @@ bool WiiUMenuApp::onCreate() {
     });
 
 
+#ifdef SWITCHU_MENU
+    // Waking over a title: Switify connects while the rest loads, so the song
+    // is on the lock's first frame.
+    const bool earlyLock = m_lockScreenOnStart && m_config.lockScreenEnabled
+        && m_launcher.suspendedTitleId() != 0;
+    if (earlyLock && spotifySource())
+        m_switify.start();
+#endif
     DebugLog::log("[init] loadResources...");
     loadResources();
     DebugLog::log("[init] loadResources done at %lums", initElapsedMs());
 #ifdef SWITCHU_MENU
     // Waking over a title: the lock goes up now that the fonts are in, not
     // after the grid (about a second of the dimmed frame alone).
-    if (m_lockScreenOnStart && m_config.lockScreenEnabled && m_launcher.suspendedTitleId() != 0) {
+    if (earlyLock) {
         showLockScreen(true);
+        refreshNowPlayingWidgets(currentNowPlayingView());
+        updateLockMusic();
         auto& ren = app().renderer();
         app().gpu().beginFrame();
         ren.beginFrame();
         renderLockScreen(ren);
         ren.endFrame();
         app().gpu().endFrame();
-        DebugLog::log("[init] early lock frame at %lums", initElapsedMs());
+        DebugLog::log("[init] early lock frame at %lums music=%d", initElapsedMs(),
+                      m_lockMusicShown ? 1 : 0);
     }
 #endif
     DebugLog::log("[init] buildGrid...");
@@ -7568,6 +7579,7 @@ void WiiUMenuApp::leaveSystemSleep() {
         return;
     m_systemAsleep = false;
     m_sleepAfterPresent = false;
+    m_sleepPrepare = false;
     app().setSleeping(false);
     app().requestFullRate();
 
@@ -7748,8 +7760,9 @@ void WiiUMenuApp::updateLockScreen(float dt) {
             m_lockMusicKeep = true;
         }
     }
-    if (m_screenOff) {
+    if (m_screenOff || m_sleepPrepare) {
         // No unlocking in the dark; the power button brings the screen back.
+        // (Nor while the lock is built before a sleep.)
         input.clearFrame();
         return;
     }
@@ -7964,7 +7977,7 @@ void WiiUMenuApp::renderLockScreen(nxui::Renderer& ren) {
     constexpr float kH = 720.f;
     // The last frame before the dark is what the screen comes back on: black,
     // not a lock with the time and song from when it went off.
-    if (m_sleepAfterPresent || m_screenOff) {
+    if (m_sleepAfterPresent || m_screenOff || m_sleepPrepare) {
         ren.drawRect({0.f, 0.f, kW, kH}, nxui::Color(0.f, 0.f, 0.f, 1.f));
         return;
     }

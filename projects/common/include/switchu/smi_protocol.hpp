@@ -66,6 +66,9 @@ enum class MenuStartMode : uint32_t {
     AppletReturn   = 2,
     // Woken from sleep over a suspended title: show the lock screen first.
     LockScreen     = 3,
+    // Going to sleep from a title: build the lock in the dark (black frames
+    // only), the daemon sleeps once it is ready. The wake then lands on it.
+    LockSleep      = 4,
 };
 
 struct CommandHeader {

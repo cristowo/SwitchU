@@ -96,6 +96,8 @@ public:
     void setTutorialStartupFade(bool enabled);
 
 #ifdef SWITCHU_MENU
+    // Opened to build the lock in the dark before a sleep: black until the wake.
+    void setSleepPrepare(bool on) { m_sleepPrepare = on; }
     void setStartupStatus(const switchu::smi::SystemStatus& status, bool fastReturn = false,
                           bool lockScreen = false, bool consoleBoot = false);
 #endif
@@ -858,6 +860,7 @@ private:
     // After a wake: what the lock showed before the sleep stays until Switify
     // plays again (or this runs out).
     float m_spotifyWakeHold = 0.f;
+    bool m_sleepPrepare = false;
     // Switify starts paused: asked to start, keep asking for Play until it plays.
     bool m_switifyAutoPlay = false;
     float m_switifyAutoPlayElapsed = 0.f;

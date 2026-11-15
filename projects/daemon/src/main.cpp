@@ -1017,6 +1017,10 @@ static void requestPowerStateChange(const char* source, bool reboot) {
 static bool g_screenOffMusicWanted = false;
 static bool g_spotifyPlaying = false;
 static bool g_screenOff = false;
+// Sleep from a title: the menu is building its lock in the dark first.
+static uint64_t g_sleepPrepareAt = 0;
+static uint64_t g_sleepPrepareReadyAt = 0;
+static bool g_sleepPrepareBacklightOff = false;
 
 // Real sleep stops every process, music included. So with the option on and
 // music audible a sleep request only turns the backlight off: the console stays
@@ -1299,6 +1303,34 @@ static void handleAppletMessages() {
         // (32 is not a request a dark screen should refuse.)
         if (msg != 32 && enterScreenOff("applet-sleep"))
             break;
+        if (g_sleepPrepareAt != 0) {
+            switchu::FileLog::log("[power] sleep: lock still being prepared");
+            break;
+        }
+        if (msg != 32 && g_lockScreenEnabled
+            && (g_lockScreenWhenDocked || !switchu::consoleIsDocked())
+            && daemon::app::isRunning() && daemon::app::hasForeground()
+            && !daemon::menu_la::hasHolder()) {
+            // From a title the menu is not running, and opening it on the wake
+            // showed the lock being built. It is built now, behind a dark
+            // screen, and the console sleeps once it is ready.
+            if (g_lblReady && !switchu::consoleIsDocked()
+                && R_SUCCEEDED(lblSwitchBacklightOff(0)))
+                g_sleepPrepareBacklightOff = true;
+            if (takeForegroundFromRunningApp("sleep-lock")) {
+                svcSleepThread(kHomeMenuSettleNsSuspended);
+                g_menuReadyThisSession = false;
+                noteMenuLaunch("sleep-lock");
+                const Result rc = daemon::menu_la::launch(smi::MenuStartMode::LockSleep,
+                                                          buildSystemStatus());
+                switchu::FileLog::log("[power] sleep: lock prepare launch rc=0x%X", rc);
+                if (R_SUCCEEDED(rc)) {
+                    g_sleepPrepareAt = armGetSystemTick();
+                    g_sleepPrepareReadyAt = 0;
+                    break;
+                }
+            }
+        }
         // The application keeps its IApplicationAccessor across system sleep,
         // but must reacquire the foreground after wake. Keep our session state
         // in sync so the Wakeup path is allowed to call app::resume().
@@ -1310,6 +1342,11 @@ static void handleAppletMessages() {
 
         case 26:
         switchu::FileLog::log("[ae] -> Wakeup");
+        g_sleepPrepareAt = 0;
+        if (g_sleepPrepareBacklightOff) {
+            g_sleepPrepareBacklightOff = false;
+            lblSwitchBacklightOn(0);
+        }
         // Went into real sleep from a dark screen (the music stopped).
         leaveScreenOff("wake");
         g_batteryRefreshPending.store(true);
@@ -2059,6 +2096,20 @@ static void mainLoop() {
             "[catalog] delivering coalesced refresh after menu relaunch");
         pushNotification(smi::MenuMessage::AppRecordsChanged);
         didWork = true;
+    }
+
+    if (g_sleepPrepareAt != 0) {
+        if (g_sleepPrepareReadyAt == 0 && g_menuReadyThisSession)
+            g_sleepPrepareReadyAt = armGetSystemTick();
+        // A few frames after ready: Spotify's state reaches the menu, which
+        // pauses it on the way down. Never ready: sleep anyway.
+        const bool ready = g_sleepPrepareReadyAt != 0
+            && elapsedNsSince(g_sleepPrepareReadyAt) >= 400'000'000ULL;
+        if (ready || elapsedNsSince(g_sleepPrepareAt) >= 5'000'000'000ULL) {
+            switchu::FileLog::log("[power] sleep: lock prepared ready=%d", ready ? 1 : 0);
+            g_sleepPrepareAt = 0;
+            startSleepSequence("sleep-lock");
+        }
     }
 
     if (g_menuRelaunchCooldown > 0)

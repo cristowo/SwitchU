@@ -554,8 +554,9 @@ void WiiUMenuApp::pollPlaylistShelf() {
 }
 
 void WiiUMenuApp::refreshNowPlayingWidgets(const NowPlayingView& view) {
-    if (!m_grid) return;
+    // Also before the grid: the lock over a title is drawn ahead of it.
     auto forEachWidget = [this](auto&& fn) {
+        if (!m_grid) return;
         for (const auto& icon : m_grid->allIcons()) {
             if (icon && icon->entryKind() == GridEntryKind::Widget &&
                 icon->widgetType() == switchu::widgets::WidgetType::NowPlaying)
