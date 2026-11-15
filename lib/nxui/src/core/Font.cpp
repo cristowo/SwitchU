@@ -2,6 +2,7 @@
 #include <nxui/core/Renderer.hpp>
 #include <nxui/core/GpuDevice.hpp>
 #include <SDL2/SDL.h>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 
@@ -19,7 +20,13 @@ bool Font::load(GpuDevice& gpu, Renderer& ren,
         std::fprintf(stderr, "[Font] TTF_OpenFont failed: %s\n", TTF_GetError());
         return false;
     }
+    return adopt(gpu, ren, newFont, ptSize);
+}
 
+bool Font::adopt(GpuDevice& gpu, Renderer& ren, TTF_Font* newFont, int ptSize)
+{
+    if (!newFont)
+        return false;
     if (m_font)
         TTF_CloseFont(m_font);
 
@@ -43,6 +50,13 @@ Vec2 Font::measure(const std::string& text) const {
     int w = 0, h = 0;
     TTF_SizeUTF8(m_font, text.c_str(), &w, &h);
     return {(float)w, (float)h};
+}
+
+void Font::warmGlyph(std::uint32_t codepoint) {
+    if (!m_font)
+        return;
+    if (SDL_Surface* drawn = TTF_RenderGlyph32_Blended(m_font, codepoint, SDL_Color{255, 255, 255, 255}))
+        SDL_FreeSurface(drawn);
 }
 
 void Font::clearCache() {
@@ -73,13 +87,27 @@ Texture* Font::getOrRender(GpuDevice& gpu, Renderer& ren, const std::string& tex
         return &it->second->tex;
     }
 
+    if (m_record)
+        m_recorded += text;
     // Render the string via SDL_ttf.
+    struct RenderTimer {
+        std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+        ~RenderTimer() {
+            ++s_renderCount;
+            s_renderMicros += static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - start).count());
+        }
+    } renderTimer;
     SDL_Color white = {255, 255, 255, 255};
     SDL_Surface* surface = TTF_RenderUTF8_Blended(m_font, text.c_str(), white);
     if (!surface) return nullptr;
 
     SDL_Surface* rgba = SDL_ConvertSurfaceFormat(surface, SDL_PIXELFORMAT_ABGR8888, 0);
     SDL_FreeSurface(surface);
+    s_ttfMicros += static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - renderTimer.start).count());
     if (!rgba) return nullptr;
 
     SDL_LockSurface(rgba);

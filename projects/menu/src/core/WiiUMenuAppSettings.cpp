@@ -3052,6 +3052,12 @@ void WiiUMenuApp::reloadSidebarIcons() {
                   packId.c_str(),
                   customIconsBase.empty() ? "<empty>" : customIconsBase.c_str(),
                   fallbackPackId.c_str());
+    if (m_earlyAssets.valid()) {
+        try { m_earlyAssets.get(); } catch (...) {}
+    }
+    if (m_sidebarPredecode.valid()) {
+        try { m_sidebarPredecode.get(); } catch (...) {}
+    }
     m_sidebar.invalidateAssetsCache();
     m_sidebar.reloadAssets(app().gpu(), app().renderer(), SD_ASSETS, customIconsBase, fallbackPackId);
     // The layout-flip chrome button uses the same pack, so refresh it too.

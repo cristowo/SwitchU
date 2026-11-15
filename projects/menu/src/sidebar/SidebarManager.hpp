@@ -49,6 +49,10 @@ public:
     // Photoshop-style HSL adjust baked into colour glyphs on the next reload.
     void setIconHslAdjust(const switchu::icons::HslAdjust& adj);
     const switchu::icons::HslAdjust& iconHslAdjust() const { return m_hslAdjust; }
+    // Decode the pack's icons ahead, on a worker (no GPU): loadAssets() then
+    // only uploads them. The caller waits for it before reloadAssets().
+    void predecodeAssets(const std::string& assetsBase, const std::string& customIconsBase,
+                         const std::string& iconPackId, const switchu::icons::HslAdjust& hsl);
 
     std::vector<std::shared_ptr<AppletButton>>& leftButtons()  { return m_leftButtons; }
     std::vector<std::shared_ptr<AppletButton>>& rightButtons() { return m_rightButtons; }
@@ -89,6 +93,12 @@ private:
     std::vector<float> m_iconMeanLumas;
     bool m_colourContrastAdapt = true;
     switchu::icons::HslAdjust m_hslAdjust;
+    struct Predecoded {
+        std::string path;
+        switchu::icons::HslAdjust hsl;
+        switchu::icons::DecodedAdaptiveIcon icon;
+    };
+    std::vector<Predecoded> m_predecoded;
     std::vector<std::shared_ptr<AppletButton>> m_leftButtons;
     std::vector<std::shared_ptr<AppletButton>> m_rightButtons;
     AppletButton*  m_albumButton    = nullptr;

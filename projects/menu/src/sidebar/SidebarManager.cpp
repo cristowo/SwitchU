@@ -5,6 +5,7 @@
 #include <nxui/core/I18n.hpp>
 #include <nxui/core/Input.hpp>
 #include <nxui/core/Animation.hpp>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <system_error>
@@ -303,6 +304,46 @@ void SidebarManager::reloadAssets(nxui::GpuDevice& gpu, nxui::Renderer& ren,
     loadAssets(gpu, ren, assetsBase, customIconsBase, packId);
 }
 
+namespace {
+constexpr const char* kSidebarIconFiles[] = {
+    "album.png", "mii_editor.png", "controller.png", "power.png", "themes.png", "settings.png",
+};
+
+bool sameHsl(const switchu::icons::HslAdjust& a, const switchu::icons::HslAdjust& b) {
+    if (!a.enabled && !b.enabled)
+        return true;
+    return a.enabled == b.enabled && a.hue == b.hue && a.sat == b.sat && a.light == b.light
+        && a.flatten == b.flatten && a.grayscale == b.grayscale;
+}
+} // namespace
+
+void SidebarManager::predecodeAssets(const std::string& assetsBase,
+                                     const std::string& customIconsBase,
+                                     const std::string& iconPackId,
+                                     const switchu::icons::HslAdjust& hsl) {
+    const std::string packId = iconPackId.empty() ? switchu::icons::kDefaultPackId : iconPackId;
+    std::vector<Predecoded> out;
+    for (const char* fileName : kSidebarIconFiles) {
+        // The same choice loadAssets() makes first.
+        std::string path;
+        if (!customIconsBase.empty()) {
+            const std::string customPath = joinPath(customIconsBase, fileName);
+            if (pathExists(customPath))
+                path = customPath;
+        }
+        if (path.empty())
+            path = switchu::icons::resolveGlyphPath(assetsBase, packId, fileName);
+        Predecoded pre;
+        if (path.empty() || !switchu::icons::decodeMaybeAdaptiveIcon(
+                path, pre.icon, 128, hsl.enabled ? &hsl : nullptr, true))
+            continue;
+        pre.path = std::move(path);
+        pre.hsl = hsl;
+        out.push_back(std::move(pre));
+    }
+    m_predecoded = std::move(out);
+}
+
 void SidebarManager::invalidateAssetsCache() {
     m_loadedAssetsBase.clear();
     m_loadedCustomIconsBase.clear();
@@ -314,7 +355,9 @@ void SidebarManager::loadAssets(nxui::GpuDevice& gpu, nxui::Renderer& ren,
                                 const std::string& assetsBase,
                                 const std::string& customIconsBase,
                                 const std::string& iconPackId) {
+    const auto loadStart = std::chrono::steady_clock::now();
     gpu.waitIdle();
+    const auto afterIdle = std::chrono::steady_clock::now();
 
     // Pack glyphs live under icons/<pack>/ with per-file fallback to icons/default.
     // Theme customIconsBase still wins when present.
@@ -336,15 +379,28 @@ void SidebarManager::loadAssets(nxui::GpuDevice& gpu, nxui::Renderer& ren,
     std::array<bool, kSidebarIconCount> iconAdaptive{};
     auto loadIconTexture = [&](int iconIdx, const char* fileName) {
         auto tryPath = [&](const std::string& path) -> bool {
-            bool adaptive = false;
-            float meanLuma = 0.5f;
-            if (!switchu::icons::loadMaybeAdaptiveIcon(
-                    m_icons[iconIdx], gpu, ren, path, &adaptive, 128,
-                    &meanLuma, &m_iconContrastMasks[iconIdx],
-                    m_hslAdjust.enabled ? &m_hslAdjust : nullptr))
+            // Decoded ahead (predecodeAssets) when it is the same file and
+            // adjust; otherwise here, as loadMaybeAdaptiveIcon() does.
+            switchu::icons::DecodedAdaptiveIcon decoded;
+            bool have = false;
+            for (auto& pre : m_predecoded) {
+                if (pre.path == path && sameHsl(pre.hsl, m_hslAdjust)) {
+                    decoded = std::move(pre.icon);
+                    pre.path.clear();
+                    have = true;
+                    break;
+                }
+            }
+            if (!have && !switchu::icons::decodeMaybeAdaptiveIcon(
+                    path, decoded, 128, m_hslAdjust.enabled ? &m_hslAdjust : nullptr, true))
                 return false;
-            iconAdaptive[static_cast<std::size_t>(iconIdx)] = adaptive;
-            m_iconMeanLumas[static_cast<std::size_t>(iconIdx)] = meanLuma;
+            if (!m_icons[iconIdx].loadFromPixels(gpu, ren, decoded.rgba.data(), decoded.w, decoded.h))
+                return false;
+            if (!decoded.contrastMask.empty())
+                m_iconContrastMasks[iconIdx].loadFromPixels(
+                    gpu, ren, decoded.contrastMask.data(), decoded.w, decoded.h);
+            iconAdaptive[static_cast<std::size_t>(iconIdx)] = decoded.adaptive;
+            m_iconMeanLumas[static_cast<std::size_t>(iconIdx)] = decoded.meanLuma;
             return true;
         };
 
@@ -369,9 +425,7 @@ void SidebarManager::loadAssets(nxui::GpuDevice& gpu, nxui::Renderer& ren,
                       fallbackPath.empty() ? "<empty>" : fallbackPath.c_str());
     };
 
-    static const char* iconFiles[] = {
-        "album.png", "mii_editor.png", "controller.png", "power.png", "themes.png", "settings.png",
-    };
+    const auto& iconFiles = kSidebarIconFiles;
     if ((int)m_icons.size() != kSidebarIconCount)
         m_icons.resize(kSidebarIconCount);
     m_iconContrastMasks.clear();
@@ -379,7 +433,9 @@ void SidebarManager::loadAssets(nxui::GpuDevice& gpu, nxui::Renderer& ren,
     m_iconMeanLumas.assign(kSidebarIconCount, 0.5f);
     for (int i = 0; i < kSidebarIconCount; ++i)
         loadIconTexture(i, iconFiles[i]);
+    m_predecoded.clear();
 
+    const auto afterIcons = std::chrono::steady_clock::now();
     static const struct { int iconIdx; const char* webpFile; bool useFirstFrame; } animDefs[] = {
         { 0, "album.webp",      false },
         { 1, "mii_editor.webp", false },
@@ -432,6 +488,12 @@ void SidebarManager::loadAssets(nxui::GpuDevice& gpu, nxui::Renderer& ren,
     m_loadedCustomIconsBase = customIconsBase;
     m_loadedIconPackId = packId;
     m_assetsLoaded = true;
+    const auto ms = [](auto from, auto to) {
+        return static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(to - from).count());
+    };
+    DebugLog::log("[sidebar-assets] load: gpu idle %ldms, icons %ldms, animations+buttons %ldms",
+                  ms(loadStart, afterIdle), ms(afterIdle, afterIcons),
+                  ms(afterIcons, std::chrono::steady_clock::now()));
 }
 
 void SidebarManager::tryLoadAnimation(nxui::GpuDevice& gpu, nxui::Renderer& ren,

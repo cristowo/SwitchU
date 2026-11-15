@@ -215,7 +215,7 @@ private:
     static constexpr int kUploadsPerFrame = 1;
     static constexpr int kMaxPendingDecodes = 4;
     static constexpr int kBurstUploadsPerFrame = 4;
-    static constexpr int kBurstMaxPendingDecodes = 8;
+    static constexpr int kBurstMaxPendingDecodes = 16;
     std::chrono::steady_clock::time_point m_burstUntil{};
     bool inBurst() const { return std::chrono::steady_clock::now() < m_burstUntil; }
     std::chrono::steady_clock::time_point m_softLandingUntil{};

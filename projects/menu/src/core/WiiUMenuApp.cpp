@@ -470,6 +470,89 @@ bool WiiUMenuApp::presentInitialFrame(nxui::Renderer& ren) {
         stbi_image_free(pixels);
     });
 
+    // Ahead of the rest: onCreate() waits for this one first.
+    m_startupData = m_threadPool.submit([this]() { loadStartupData(); });
+    {
+        std::ifstream memo(kGlyphMemoPath);
+        std::getline(memo, m_glyphMemo[0]);
+        std::getline(memo, m_glyphMemo[1]);
+    }
+    // Each size on its own worker. FreeType allows that for separate faces as
+    // long as they are opened one at a time.
+    const auto warmFont = [this](int slot, int size, bool icons) {
+        const std::uint64_t started = armGetSystemTick();
+        const std::string dir = std::string(SD_ASSETS) + "/fonts/";
+        // What HOME's labels are made of. Each letter is slow the first time
+        // it is drawn (DejaVu's hinting), and then cached in the font.
+        static const char kWarm[] =
+            " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+            ".,:!?'()-/%áéíóúñ";
+        TTF_Font* font = nullptr;
+        {
+            std::lock_guard lock(m_fontOpenMutex);
+            font = TTF_OpenFont((dir + "DejaVuSans.ttf").c_str(), size);
+            if (icons)
+                m_preFonts[2] = TTF_OpenFont((dir + "switch_icons.ttf").c_str(), 24);
+        }
+        if (font) {
+            // The letters the last starts needed; all of them the first time.
+            const std::string& learned = m_glyphMemo[slot];
+            if (SDL_Surface* drawn = TTF_RenderUTF8_Blended(
+                    font, learned.empty() ? kWarm : learned.c_str(), SDL_Color{255, 255, 255, 255}))
+                SDL_FreeSurface(drawn);
+        }
+        m_preFonts[slot] = font;
+        DebugLog::log("[init] font %d opened and warmed on a worker in %lums", size,
+                      static_cast<unsigned long>(
+                          armTicksToNs(armGetSystemTick() - started) / 1'000'000ULL));
+    };
+    m_fontPreload = m_threadPool.submit([warmFont]() { warmFont(0, 24, true); });
+    m_fontPreload2 = m_threadPool.submit([warmFont]() { warmFont(1, 18, false); });
+
+    {
+        std::ifstream memo(kSidebarMemoPath);
+        m_sidebarMemoText.assign(std::istreambuf_iterator<char>(memo), std::istreambuf_iterator<char>());
+    }
+    m_earlyAssets = m_threadPool.submit([this, memoText = m_sidebarMemoText]() {
+        const std::uint64_t started = armGetSystemTick();
+        // custom icons dir, pack, then the adjust: as buildGrid() writes them.
+        const std::size_t first = memoText.find('\n');
+        const std::size_t second = first == std::string::npos
+            ? std::string::npos : memoText.find('\n', first + 1);
+        if (second != std::string::npos) {
+            switchu::icons::HslAdjust hsl;
+            int enabled = 0, flatten = 0, grayscale = 0;
+            if (std::sscanf(memoText.c_str() + second + 1, "%d %f %f %f %d %d", &enabled,
+                            &hsl.hue, &hsl.sat, &hsl.light, &flatten, &grayscale) == 6) {
+                hsl.enabled = enabled != 0;
+                hsl.flatten = flatten != 0;
+                hsl.grayscale = grayscale != 0;
+                m_sidebar.predecodeAssets(SD_ASSETS, memoText.substr(0, first),
+                                          memoText.substr(first + 1, second - first - 1), hsl);
+            }
+        }
+        static const char* const kFiles[] = {
+            "gamecard.png", "page_arrow_left.png", "page_arrow_right.png",
+            "widget_battery_switch.png", "widget_battery_joycon_left.png",
+            "widget_battery_joycon_right.png",
+        };
+        for (const char* file : kFiles) {
+            PreTexture pre;
+            pre.path = std::string(SD_ASSETS) + "/icons/default/" + file;
+            int channels = 0;
+            if (stbi_uc* pixels = stbi_load(pre.path.c_str(), &pre.w, &pre.h, &channels, 4)) {
+                if (pre.w > 0 && pre.h > 0) {
+                    pre.rgba.assign(pixels, pixels + static_cast<std::size_t>(pre.w) * pre.h * 4);
+                    m_preTextures.push_back(std::move(pre));
+                }
+                stbi_image_free(pixels);
+            }
+        }
+        DebugLog::log("[init] sidebar icons and fixed pictures decoded on a worker in %lums",
+                      static_cast<unsigned long>(
+                          armTicksToNs(armGetSystemTick() - started) / 1'000'000ULL));
+    }).share();
+
     LeaveFrameImage image;
     if (LeaveFrameCache::load(m_leaveSession, image) && image.valid()
         && m_leaveSplashTex.loadFromPixels(app().gpu(), ren,
@@ -830,7 +913,21 @@ void WiiUMenuApp::updateLeaveSplashHandoff(float dt) {
 
     if (m_leaveSplashPhase == LeaveSplashPhase::Hold) {
         m_leaveSplashHoldRemaining -= dt;
+        bool filling = m_deferredInitialAssetFrames > 0;
+        if (!filling && m_grid) {
+            const bool line = m_appLayoutMode == AppLayoutMode::DynamicLine;
+            filling = m_iconStreamer.needsVisibleLoads(
+                line ? std::max(0, m_grid->focusedGlobalIndex()) : m_grid->currentPage(),
+                line ? 1 : std::max(1, m_grid->iconsPerPage()));
+        }
+        constexpr float kFillPatience = 0.35f;
+        if (m_leaveSplashHoldRemaining <= 0.f && filling && m_leaveSplashFillWait < kFillPatience) {
+            m_leaveSplashFillWait += dt;
+            return;
+        }
         if (m_leaveSplashHoldRemaining <= 0.f) {
+            DebugLog::log("[leave] splash waited %.2fs for the page's icons (still filling=%d)",
+                          m_leaveSplashFillWait, filling ? 1 : 0);
             m_leaveSplashHoldRemaining = 0.f;
             m_leaveSplashPhase = LeaveSplashPhase::Fade;
             DebugLog::log("[leave] splash crossfade begin");
@@ -924,6 +1021,109 @@ void WiiUMenuApp::updateLeaveSplashHandoff(float dt) {
     }
 }
 
+void WiiUMenuApp::loadStartupData() {
+    const std::uint64_t started = armGetSystemTick();
+    m_config.load();
+    m_appLayoutMode = m_config.appLayoutMode;
+    loadMenuLayout();
+    if (!m_folderStore.load())
+        DebugLog::log("[folders] store unavailable; continuing with an empty folder list");
+    if (!m_widgetStore.load())
+        DebugLog::log("[widgets] store unavailable; continuing with an empty widget list");
+    normalizeWidgetPlacements();
+    if (m_widgetStore.recentActivity().titleId != 0) {
+        refreshRecentActivityDuration();
+        if (!m_widgetStore.save(false))
+            DebugLog::log("[widgets] recent activity duration could not be saved");
+    }
+    loadCustomNames();
+    m_lockPasswordSet = switchu::lockpw::length() > 0;
+    nxui::I18n::instance().initialize(std::string(SD_ASSETS) + "/i18n", "en-US");
+    applyUiLanguage();
+    m_startupDataLoaded = true;
+    DebugLog::log("[init] settings, layout, widgets and language read in %lums",
+                  static_cast<unsigned long>(
+                      armTicksToNs(armGetSystemTick() - started) / 1'000'000ULL));
+}
+
+namespace {
+std::u32string codepointsOf(const std::string& utf8) {
+    std::u32string out;
+    for (std::size_t i = 0; i < utf8.size();) {
+        const unsigned char lead = static_cast<unsigned char>(utf8[i]);
+        const int length = lead < 0x80 ? 1 : (lead >> 5) == 0x6 ? 2 : (lead >> 4) == 0xE ? 3
+            : (lead >> 3) == 0x1E ? 4 : 0;
+        if (length == 0 || i + length > utf8.size()) {
+            ++i; // not the start of a character
+            continue;
+        }
+        char32_t value = length == 1 ? lead : lead & (0xFF >> (length + 1));
+        for (int k = 1; k < length; ++k)
+            value = (value << 6) | (static_cast<unsigned char>(utf8[i + k]) & 0x3F);
+        out.push_back(value);
+        i += length;
+    }
+    return out;
+}
+
+std::string utf8Of(char32_t value) {
+    std::string out;
+    if (value < 0x80) {
+        out += static_cast<char>(value);
+    } else if (value < 0x800) {
+        out += static_cast<char>(0xC0 | (value >> 6));
+        out += static_cast<char>(0x80 | (value & 0x3F));
+    } else if (value < 0x10000) {
+        out += static_cast<char>(0xE0 | (value >> 12));
+        out += static_cast<char>(0x80 | ((value >> 6) & 0x3F));
+        out += static_cast<char>(0x80 | (value & 0x3F));
+    } else {
+        out += static_cast<char>(0xF0 | (value >> 18));
+        out += static_cast<char>(0x80 | ((value >> 12) & 0x3F));
+        out += static_cast<char>(0x80 | ((value >> 6) & 0x3F));
+        out += static_cast<char>(0x80 | (value & 0x3F));
+    }
+    return out;
+}
+} // namespace
+
+void WiiUMenuApp::saveStartupGlyphs() {
+    nxui::Font* fonts[2] = {&m_fontNormal, &m_fontSmall};
+    constexpr std::size_t kMemoCap = 480; // bytes a font; a start draws far fewer
+    bool grew = false;
+    for (int i = 0; i < 2; ++i) {
+        // The digits always: the clock's differ from one start to the next.
+        const std::string drawn = fonts[i]->takeRecorded() + "0123456789:";
+        for (char32_t value : codepointsOf(drawn)) {
+            if (value < 0x20)
+                continue;
+            const std::string one = utf8Of(value);
+            if (m_glyphMemo[i].find(one) == std::string::npos
+                && m_glyphMemo[i].size() + one.size() <= kMemoCap) {
+                m_glyphMemo[i] += one;
+                grew = true;
+            }
+        }
+    }
+    if (grew) {
+        std::ofstream out(kGlyphMemoPath, std::ios::trunc);
+        out << m_glyphMemo[0] << '\n' << m_glyphMemo[1] << '\n';
+        DebugLog::log("[init] startup letters learned: regular=%zu small=%zu bytes",
+                      m_glyphMemo[0].size(), m_glyphMemo[1].size());
+    }
+}
+
+void WiiUMenuApp::warmNextGlyph() {
+    static const std::u32string kLetters =
+        U" ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        U".,:;!?'\"()-+/%&áéíóúüñÁÉÍÓÚÜÑ¿¡";
+    if (m_idleWarmNext >= kLetters.size() * 2)
+        return;
+    (m_idleWarmNext % 2 == 0 ? m_fontNormal : m_fontSmall)
+        .warmGlyph(static_cast<std::uint32_t>(kLetters[m_idleWarmNext / 2]));
+    ++m_idleWarmNext;
+}
+
 bool WiiUMenuApp::onCreate() {
     const std::uint64_t initStartTick = armGetSystemTick();
     auto initElapsedMs = [initStartTick]() -> unsigned long {
@@ -959,21 +1159,13 @@ bool WiiUMenuApp::onCreate() {
     m_iconStreamer.setPreferPosterQuery([this](uint64_t titleId) {
         return preferPosterIconData(titleId);
     });
-    m_config.load();
-    m_appLayoutMode = m_config.appLayoutMode;
-    loadMenuLayout();
-    if (!m_folderStore.load())
-        DebugLog::log("[folders] store unavailable; continuing with an empty folder list");
-    if (!m_widgetStore.load())
-        DebugLog::log("[widgets] store unavailable; continuing with an empty widget list");
-    normalizeWidgetPlacements();
-    if (m_widgetStore.recentActivity().titleId != 0) {
-        refreshRecentActivityDuration();
-        if (!m_widgetStore.save(false))
-            DebugLog::log("[widgets] recent activity duration could not be saved");
+    // Read on a worker while the title's frame shrank away
+    // (presentInitialFrame); here otherwise.
+    if (m_startupData.valid()) {
+        try { m_startupData.get(); } catch (...) {}
     }
-    loadCustomNames();
-    m_lockPasswordSet = switchu::lockpw::length() > 0;
+    if (!m_startupDataLoaded)
+        loadStartupData();
     nxui::GlassPanel::setEffectsEnabled(m_config.glassEffects);
     m_appLoader.setPendingTransform([this](std::vector<PendingApp>& apps) {
         for (auto& pending : apps) {
@@ -984,8 +1176,6 @@ bool WiiUMenuApp::onCreate() {
         applyMenuLayoutToPending(apps);
     });
 
-    nxui::I18n::instance().initialize(std::string(SD_ASSETS) + "/i18n", "en-US");
-    applyUiLanguage();
     const bool fastReturn = m_fastReturnRequested || m_launcher.suspendedTitleId() != 0;
     m_fastReturnRequested = fastReturn;
     m_fastReturnStartupTick = fastReturn ? initStartTick : 0;
@@ -1262,15 +1452,30 @@ void WiiUMenuApp::onDestroy() {
 }
 
 void WiiUMenuApp::loadResources() {
+    // Opened ahead on a worker when HOME starts over a title (presentInitialFrame).
+    if (m_fontPreload.valid()) {
+        try { m_fontPreload.get(); } catch (...) {}
+    }
+    if (m_fontPreload2.valid()) {
+        try { m_fontPreload2.get(); } catch (...) {}
+    }
     DebugLog::log("[init] loadResources: regular font");
     std::string fontPath = std::string(SD_ASSETS) + "/fonts/DejaVuSans.ttf";
-    if (m_fontNormal.load(app().gpu(), app().renderer(), fontPath, 24))
+    if (m_preFonts[0] ? m_fontNormal.adopt(app().gpu(), app().renderer(), m_preFonts[0], 24)
+                      : m_fontNormal.load(app().gpu(), app().renderer(), fontPath, 24))
         m_loadedRegularFontPath = fontPath;
     DebugLog::log("[init] loadResources: small font");
-    if (m_fontSmall.load(app().gpu(), app().renderer(), fontPath, 18))
+    if (m_preFonts[1] ? m_fontSmall.adopt(app().gpu(), app().renderer(), m_preFonts[1], 18)
+                      : m_fontSmall.load(app().gpu(), app().renderer(), fontPath, 18))
         m_loadedSmallFontPath = fontPath;
     DebugLog::log("[init] loadResources: icon font");
-    m_fontIcons.load(app().gpu(), app().renderer(), std::string(SD_ASSETS) + "/fonts/switch_icons.ttf", 24);
+    if (!m_preFonts[2] || !m_fontIcons.adopt(app().gpu(), app().renderer(), m_preFonts[2], 24))
+        m_fontIcons.load(app().gpu(), app().renderer(), std::string(SD_ASSETS) + "/fonts/switch_icons.ttf", 24);
+    m_preFonts[0] = m_preFonts[1] = m_preFonts[2] = nullptr;
+    if (m_fastReturnRequested) {
+        m_fontNormal.setRecordRendered(true);
+        m_fontSmall.setRecordRendered(true);
+    }
 
     if (m_fastReturnRequested) {
         m_deferredStaticTextures = true;
@@ -1284,22 +1489,35 @@ void WiiUMenuApp::loadResources() {
     DebugLog::log("[init] loadResources: done");
 }
 
+bool WiiUMenuApp::loadStaticTexture(nxui::Texture& texture, const std::string& path) {
+    for (PreTexture& pre : m_preTextures)
+        if (pre.path == path && !pre.rgba.empty()) {
+            const bool ok = texture.loadFromPixels(app().gpu(), app().renderer(),
+                                                   pre.rgba.data(), pre.w, pre.h);
+            pre.rgba = {};
+            if (ok)
+                return true;
+        }
+    return texture.loadFromFile(app().gpu(), app().renderer(), path);
+}
+
 void WiiUMenuApp::loadStaticTextures() {
     DebugLog::log("[init] loadResources: static textures");
-    std::string gameCardPath = std::string(SD_ASSETS) + "/icons/default/gamecard.png";
-    if (m_gameCardTex.loadFromFile(app().gpu(), app().renderer(), gameCardPath))
+    // Decoded ahead on a worker when HOME starts over a title.
+    if (m_earlyAssets.valid()) {
+        try { m_earlyAssets.get(); } catch (...) {}
+    }
+    const std::string base = std::string(SD_ASSETS) + "/icons/default/";
+    std::string gameCardPath = base + "gamecard.png";
+    if (loadStaticTexture(m_gameCardTex, gameCardPath))
         m_loadedGameCardPath = gameCardPath;
 
-    m_arrowTexLeft.loadFromFile(app().gpu(), app().renderer(),
-                                std::string(SD_ASSETS) + "/icons/default/page_arrow_left.png");
-    m_arrowTexRight.loadFromFile(app().gpu(), app().renderer(),
-                                 std::string(SD_ASSETS) + "/icons/default/page_arrow_right.png");
-    m_batteryConsoleTex.loadFromFile(app().gpu(), app().renderer(),
-                                     std::string(SD_ASSETS) + "/icons/default/widget_battery_switch.png");
-    m_batteryJoyconLeftTex.loadFromFile(app().gpu(), app().renderer(),
-                                        std::string(SD_ASSETS) + "/icons/default/widget_battery_joycon_left.png");
-    m_batteryJoyconRightTex.loadFromFile(app().gpu(), app().renderer(),
-                                         std::string(SD_ASSETS) + "/icons/default/widget_battery_joycon_right.png");
+    loadStaticTexture(m_arrowTexLeft, base + "page_arrow_left.png");
+    loadStaticTexture(m_arrowTexRight, base + "page_arrow_right.png");
+    loadStaticTexture(m_batteryConsoleTex, base + "widget_battery_switch.png");
+    loadStaticTexture(m_batteryJoyconLeftTex, base + "widget_battery_joycon_left.png");
+    loadStaticTexture(m_batteryJoyconRightTex, base + "widget_battery_joycon_right.png");
+    m_preTextures.clear();
 }
 
 void WiiUMenuApp::loadProfiles(bool loadImmediately) {
@@ -6879,6 +7097,32 @@ void WiiUMenuApp::buildGrid() {
     // Apply the saved per-pack tint / contrast follow to the freshly built
     // sidebar so a boot never shows chrome-tinted icons unless asked for.
     syncColourIconContrast();
+    if (fastReturn) {
+        // The sidebar's icons are decoded on a worker and the deferred pass
+        // (reloadSidebarIcons) only uploads them. Same pack and adjust as last
+        // time: that started with the process (presentInitialFrame). Otherwise
+        // it starts here, and the next start knows.
+        const std::string packId = resolvedIconPackId();
+        const std::string custom = iconsDirectoryForPack(packId);
+        const std::string fallback = switchu::icons::isThemePackId(packId)
+            ? std::string(switchu::icons::kDefaultPackId) : packId;
+        const switchu::icons::HslAdjust hsl = m_sidebar.iconHslAdjust();
+        char hslLine[96];
+        std::snprintf(hslLine, sizeof(hslLine), "%d %.9g %.9g %.9g %d %d", hsl.enabled ? 1 : 0,
+                      hsl.hue, hsl.sat, hsl.light, hsl.flatten ? 1 : 0, hsl.grayscale ? 1 : 0);
+        const std::string memo = custom + "\n" + fallback + "\n" + hslLine + "\n";
+        if (memo != m_sidebarMemoText) {
+            m_sidebarMemoText = memo;
+            std::ofstream(kSidebarMemoPath, std::ios::trunc) << memo;
+            m_sidebarPredecode = m_threadPool.submit(
+                [this, custom, fallback, hsl, early = m_earlyAssets]() {
+                    // One decode at a time fills the sidebar's list.
+                    if (early.valid())
+                        early.wait();
+                    m_sidebar.predecodeAssets(SD_ASSETS, custom, fallback, hsl);
+                });
+        }
+    }
 
     wireGlobalActions();
     applyTheme();
@@ -8791,6 +9035,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
     pollThumbnailAtlases(dt);
     pollGameArtworkAssets();
     syncFolderHeader();
+    lap("thumbs+artwork+folder header");
 
 #ifdef NXUI_BACKEND_DEKO3D
     // Text is cached as GPU textures. Keep a reserved image-memory margin for
@@ -8891,7 +9136,9 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         }
     }
 
+    lap("text cache+idle drip");
     syncSteamGridDb();
+    lap("steamgriddb sync");
 
     // Dynamic-line navigation owns a small internal focus manager. Depending
     // on the route transition, its selected icon can change without producing
@@ -8929,6 +9176,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         }
     }
 
+    lap("focused artwork");
     pumpFolderPeekComposites();
     trimFolderArtCachesDrip();
 
@@ -9030,6 +9278,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
             applyFolderCoversToIcons(index, 0);
     }
 
+    lap("backdrop+folder peeks+covers");
     if (m_folderCaptureReady)
         openCapturedFolder();
 
@@ -9045,8 +9294,10 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         }
     }
 
+    lap("folder capture+auto theme");
     if (m_config.actionHintStyle != "panel")
         syncHintCapsules(dt);
+    lap("hint capsules");
 
     if (m_grid) { // smooth animation of the page arrow center position
         const nxui::Rect gr = m_grid->rect();
@@ -9154,7 +9405,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
     }
 #endif
 
-    lap("thumbs+artwork+text+input");
+    lap("auto theme+hints+arrows");
     syncSoftwareDeletion();
 
     if (!m_accessibilityReady && m_accessibilityFuture.valid() &&
@@ -9280,10 +9531,12 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         --m_deferredInitialAssetFrames;
         if (m_deferredInitialAssetFrames == 0) {
             DebugLog::log("[init] deferred initial icon/sidebar uploads start");
+            lap("before deferred");
             if (m_deferredStaticTextures) {
                 m_deferredStaticTextures = false;
                 loadStaticTextures();
             }
+            lap("deferred: static textures");
             if (m_grid) {
                 int page = 0, pageSize = 1;
                 if (m_appLayoutMode == AppLayoutMode::DynamicLine) {
@@ -9297,11 +9550,16 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
                                              app().gpu(), app().renderer(),
                                              m_grid->allIcons());
             }
+            lap("deferred: page icons");
             reloadSidebarIcons();
+            lap("deferred: sidebar icons");
             DebugLog::log("[init] deferred initial icon/sidebar uploads done");
         }
     }
     lap("deferred assets");
+    // The rest of the alphabet, a letter a frame once HOME is up.
+    if (m_profFrames >= 5 && !leaveSplashActive() && !m_lockScreenActive)
+        warmNextGlyph();
 
     // Public HTTPS clock sync once per boot (failure toast only; retry until online).
     if (m_config.webClockSyncEnabled && !m_webClockBootSyncStarted) {
@@ -11107,10 +11365,19 @@ void WiiUMenuApp::onRender(nxui::Renderer& ren) {
     g_uiStage.store("render");
     if (m_profFrames < 5) {
         // The widget tree is drawn before this: its time is since the update.
-        DebugLog::log("[startup] frame=%d widget tree render %lums", m_profFrames,
+        DebugLog::log("[startup] frame=%d widget tree render %lums (new text since last: %u strings, %lums, of it drawing letters %lums)",
+                      m_profFrames,
                       static_cast<unsigned long>(
-                          armTicksToNs(armGetSystemTick() - m_profUpdateEndTick) / 1'000'000ULL));
+                          armTicksToNs(armGetSystemTick() - m_profUpdateEndTick) / 1'000'000ULL),
+                      nxui::Font::s_renderCount - m_profTextCount,
+                      static_cast<unsigned long>((nxui::Font::s_renderMicros - m_profTextMicros) / 1000ULL),
+                      static_cast<unsigned long>((nxui::Font::s_ttfMicros - m_profTtfMicros) / 1000ULL));
+        m_profTtfMicros = nxui::Font::s_ttfMicros;
+        m_profTextCount = nxui::Font::s_renderCount;
+        m_profTextMicros = nxui::Font::s_renderMicros;
         ++m_profFrames;
+        if (m_profFrames == 5 && m_fastReturnRequested)
+            saveStartupGlyphs();
     }
     if (m_folderCaptureRequested) {
         if (ren.gpu().offscreenReady()) {

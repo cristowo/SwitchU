@@ -797,7 +797,7 @@ private:
     void raiseProgressDialogAboveOverlays();
     void cancelSteamGridDbApply();
 
-    nxui::ThreadPool m_threadPool{2};
+    nxui::ThreadPool m_threadPool{3};
     SidebarManager  m_sidebar;
     AppletLauncher  m_launcher;
     AppListLoader   m_appLoader;
@@ -1132,6 +1132,44 @@ private:
     // shrinks away (nothing else can load then). The path is the last one used.
     static constexpr const char* kBackgroundMemoPath = "sdmc:/config/SwitchU/cache/last_background.txt";
     std::future<void> m_bgPreloadFuture;
+    // The sidebar's icons, decoded while the first frame is built.
+    std::future<void> m_sidebarPredecode;
+    // The fonts, opened and their letters drawn once on a worker while the
+    // title's frame shrinks away: regular 24, small 18, icons 24.
+    std::future<void> m_fontPreload;
+    std::future<void> m_fontPreload2;
+    std::mutex m_fontOpenMutex; // FreeType: faces are opened one at a time
+    TTF_Font* m_preFonts[3] = {};
+    // The sidebar's icons (for the pack and adjust of last time) and the small
+    // fixed pictures, decoded on a worker from the very start.
+    static constexpr const char* kSidebarMemoPath = "sdmc:/config/SwitchU/cache/last_sidebar.txt";
+    struct PreTexture {
+        std::string path;
+        int w = 0;
+        int h = 0;
+        std::vector<std::uint8_t> rgba;
+    };
+    std::shared_future<void> m_earlyAssets;
+    std::vector<PreTexture> m_preTextures;
+    std::string m_sidebarMemoText;
+    bool loadStaticTexture(nxui::Texture& texture, const std::string& path);
+    float m_leaveSplashFillWait = 0.f;
+    // Settings, layout, widgets and language: files and parsing only, so they
+    // are read on a worker while the title's frame shrinks away.
+    void loadStartupData();
+    std::future<void> m_startupData;
+    bool m_startupDataLoaded = false;
+    // The letters the last starts drew in their first frames, per font
+    // (regular, small): the workers draw those ahead, not the whole alphabet
+    // (3-4 ms a letter). The rest comes one a frame once HOME is up.
+    static constexpr const char* kGlyphMemoPath = "sdmc:/config/SwitchU/cache/startup_glyphs.txt";
+    std::string m_glyphMemo[2];
+    std::size_t m_idleWarmNext = 0;
+    void saveStartupGlyphs();
+    void warmNextGlyph();
+    std::uint64_t m_profTtfMicros = 0;
+    unsigned m_profTextCount = 0;
+    std::uint64_t m_profTextMicros = 0;
     std::string m_bgMemoPath;
     std::string m_bgPreloadPath;
     std::vector<std::uint8_t> m_bgPreloadRgba;
