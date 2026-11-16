@@ -42,7 +42,27 @@ enum class IpcCommand : std::uint32_t {
     BrowseQueue = 37,
     GetAudioLevels = 38, // our Switify fork only; official builds reject it
     ReloadCurrent = 39,  // same
+    // Same again: a playlist pinned on HOME. A browse item's Spotify URI and
+    // its picture's URL, play one by its URI ("uri\nname" as the query), and
+    // what became of that.
+    GetBrowseItemUri = 40,
+    GetBrowseItemImage = 41,
+    PlayUri = 42,
+    GetPinInfo = 43,
 };
+
+// GetPinInfo's value, and the state it answers with (IpcBrowseText.kind).
+inline constexpr std::uint32_t kPinInfoUri = 0;
+inline constexpr std::uint32_t kPinInfoName = 1;
+inline constexpr std::uint32_t kPinInfoImage = 2;
+inline constexpr std::uint32_t kPinIdle = 0;
+inline constexpr std::uint32_t kPinLoading = 1;
+inline constexpr std::uint32_t kPinStarted = 2;
+inline constexpr std::uint32_t kPinUnavailable = 3; // deleted, private, or empty
+inline constexpr std::uint32_t kPinFailed = 4;      // not known: no connection
+inline constexpr std::uint32_t kPinFlagCurrent = 1u << 0; // it is what plays now
+// What Switify answers to a command it does not know (the official build).
+inline constexpr std::uint32_t kControlResultModule = 421;
 
 inline constexpr std::uint32_t kStatusFlagConnected = 1u << 0;
 inline constexpr std::uint32_t kStatusFlagShuffle = 1u << 2;
@@ -114,6 +134,18 @@ struct IpcBrowseItem {
 };
 static_assert(sizeof(IpcBrowseItem) == 216);
 static_assert(offsetof(IpcBrowseItem, detail) == 176);
+
+// SwitifyIpcBrowseText: a browse item's URI or picture URL, or the pin's.
+struct IpcBrowseText {
+    std::uint32_t structSize;
+    std::uint32_t abiVersion;
+    std::uint64_t generation;
+    std::uint32_t kind;
+    std::uint32_t flags;
+    char text[192];
+};
+static_assert(sizeof(IpcBrowseText) == 216);
+static_assert(offsetof(IpcBrowseText, text) == 24);
 
 struct IpcBrowseRequest {
     std::uint64_t generation;

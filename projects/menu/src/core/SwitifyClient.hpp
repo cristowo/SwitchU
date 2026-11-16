@@ -59,6 +59,18 @@ struct BrowseItem {
     std::string subtitle;
     std::string detail;
     std::uint32_t durationMs = 0;
+    // Collections only, and only from our Switify build: what pins one.
+    std::string uri;
+    std::string imageUrl;
+};
+
+// What became of the last playUri().
+struct PinInfo {
+    std::uint32_t state = kPinIdle;
+    bool current = false; // it is what plays now
+    std::string uri;
+    std::string name;     // as Spotify has them now (once started)
+    std::string imageUrl;
 };
 
 struct BrowsePage {
@@ -110,6 +122,13 @@ public:
                 std::uint32_t index = 0, std::string query = {});
     void launchService();
 
+    // A pinned playlist (album, artist). Needs our Switify build.
+    void playUri(const std::string& uri, const std::string& name);
+    void setPinWatch(bool wanted) { m_pinWatch.store(wanted); }
+    PinInfo pinInfo() const;
+    // A picture to a file (JPEG, at most 512 KiB). Asked once; see it arrive.
+    void fetchImage(std::string url, std::string path);
+
 private:
     struct Request {
         IpcCommand command = IpcCommand::GetStatus;
@@ -119,6 +138,8 @@ private:
         std::string query;
         bool isBrowse = false;
         bool isLaunch = false;
+        bool isFetch = false; // query: URL, path: the file
+        std::string path;
     };
 
     void run();
@@ -131,6 +152,7 @@ private:
     void pollBrowse();
     void pollCover(bool hasTrack);
     void pollLevels();
+    void pollPin();
 
     mutable std::mutex m_mutex;
     std::condition_variable m_wake;
@@ -144,6 +166,8 @@ private:
     NowPlaying m_now;
     BrowsePage m_browse;
     std::shared_ptr<const Cover> m_cover;
+    PinInfo m_pin;
+    std::atomic<bool> m_pinWatch{false};
     bool m_awaitingBrowse = false;
     std::uint64_t m_staleGeneration = 0;
     std::chrono::steady_clock::time_point m_awaitingBrowseSince{};
@@ -153,6 +177,7 @@ private:
     bool m_installed = false;
     std::chrono::steady_clock::time_point m_launchedAt{};
     bool m_launchPending = false;
+    bool m_pinCommands = true; // false once Switify says it does not know them
     std::string m_coverUrl;
     std::string m_failedCoverUrl;
     std::chrono::steady_clock::time_point m_coverRetryAt{};

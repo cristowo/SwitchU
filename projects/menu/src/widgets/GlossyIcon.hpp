@@ -96,6 +96,12 @@ public:
     bool unloadWidgetImageAsset();
     void allowWidgetImageAssetRetry();
     void setWidgetHeader(std::string header) { m_widgetHeader = std::move(header); }
+    // Over the foot of an image widget (a pinned playlist's name), and the
+    // picture dimmed (the playlist is gone).
+    void setWidgetCaption(std::string caption, bool dimmed) {
+        m_widgetCaption = std::move(caption);
+        m_widgetDimmed = dimmed;
+    }
     void setWidgetText(std::string primary, std::string secondary) {
         m_widgetPrimary = std::move(primary);
         m_widgetSecondary = std::move(secondary);
@@ -239,6 +245,8 @@ private:
     int m_widgetColumns = 1;
     int m_widgetRows = 1;
     std::string m_widgetPrimary;
+    std::string m_widgetCaption;
+    bool m_widgetDimmed = false;
     std::string m_widgetSecondary;
     std::string m_widgetHeader;
     float m_widgetProgress = -1.f;

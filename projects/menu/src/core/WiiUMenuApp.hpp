@@ -226,7 +226,11 @@ private:
         std::string target;
         float waited = 0.f;
         bool listed = false; // asked once; Plus can ask again
+        std::uint64_t openedFrom = 0; // the page the playlist was opened from
     };
+    // Switify's library opens on its sections; the playlists are inside the
+    // first. True once `page` is the list; from the root, asks for it.
+    bool spotifyLibraryList(const switchu::switify::BrowsePage& page);
     void pollPlaylistShelf();
     void playPlaylistShelf();
     void stepPlaylistShelf(int delta);
@@ -245,6 +249,30 @@ private:
     void pauseSpotifyForLocal();
     void pauseLocalForSpotify();
     void requestSwitifyPlayback();
+    // A Spotify playlist (album, artist) pinned on HOME. It is an image widget:
+    // its picture is the playlist's (widgets/assets/pins/<key>.jpg) and a text
+    // file beside it holds what plays it.
+    struct SpotifyPin {
+        std::string uri;
+        std::string name;
+        std::string imageUrl;
+        bool gone = false; // Spotify no longer has it for this account
+    };
+    static bool isSpotifyPinRef(const std::string& assetRef);
+    bool loadSpotifyPin(const std::string& assetRef, SpotifyPin& pin) const;
+    void saveSpotifyPin(const std::string& assetRef, const SpotifyPin& pin) const;
+    void applySpotifyPinWidget(GlossyIcon& icon, const std::string& assetRef) const;
+    void refreshSpotifyPinWidgets();
+    void startSpotifyPinPicker(int targetSlot, const nxui::Rect& anchor,
+                               switchu::widgets::WidgetSize size);
+    void pollSpotifyPinPicker();
+    void createSpotifyPin(int targetSlot, switchu::widgets::WidgetSize size,
+                          const SpotifyPin& pin);
+    void requestSpotifyPinPicture(const std::string& assetRef, const SpotifyPin& pin, bool again);
+    void playSpotifyPin(std::uint32_t widgetId);
+    void startSpotifyPin(std::uint32_t widgetId);
+    void pollSpotifyPins();
+    void removeWidget(std::uint32_t widgetId);
     void pollMusicLink(float dt);
     // HOME's songs stay off over a suspended title; Spotify is not HOME's.
     int activeMusicSource() const { return spotifySource() ? kMusicSourceSpotify : kMusicSourceSongs; }
@@ -842,6 +870,30 @@ private:
     bool m_lockMusicKeep = false; // paused from the lock: its controls must stay
     std::array<float, SpectrumAnalyzer::kBands> m_musicBars{};
     PlaylistShelf m_playlistShelf;
+    struct PinPicker {
+        bool waiting = false; // for the library's page
+        float waited = 0.f;
+        int targetSlot = 0;
+        nxui::Rect anchor{};
+        switchu::widgets::WidgetSize size{};
+    };
+    PinPicker m_pinPicker;
+    bool m_widgetMenuForPin = false; // the size menu leads to the picker
+    struct PinPlay {
+        std::uint32_t widgetId = 0;
+        std::string uri;
+        float waited = 0.f;
+        bool waitingForService = false; // Switify was asked to start first
+        bool active = false;            // PlayUri sent, its answer awaited
+    };
+    PinPlay m_pinPlay;
+    struct PinPicture {
+        std::int64_t before = 0; // the file's time when asked (0: no file)
+        float waited = 0.f;
+    };
+    std::unordered_map<std::string, PinPicture> m_pinPictures; // by file, on their way
+    std::unordered_set<std::string> m_pinPicturesAsked;        // URLs, once a session
+    bool m_pinPicturesChecked = false;
     float m_lockDiscAngle = 0.f; // the album lock screen's record, turning
     // Its look for the song on: the label's colour (the cover's, else one of
     // its own) and how its grooves fall. Set once per song.

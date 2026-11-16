@@ -1228,6 +1228,26 @@ void GlossyIcon::onContentRender(nxui::Renderer& ren) {
             ren.drawTextureRounded(image, imageRect,
                                    std::max(8.f, rad - 6.f),
                                    nxui::Color::white().withAlpha(m_opacity));
+            if (m_widgetDimmed)
+                ren.drawRoundedRect(imageRect, nxui::Color(0.f, 0.f, 0.f, 0.55f * m_opacity),
+                                    std::max(8.f, rad - 6.f));
+            if (!m_widgetCaption.empty() && m_font) {
+                constexpr float kStrip = 30.f;
+                constexpr float kScale = 0.6f;
+                const nxui::Rect strip{imageRect.x, imageRect.y + imageRect.height - kStrip,
+                                       imageRect.width, kStrip};
+                ren.drawRoundedRect(strip, nxui::Color(0.f, 0.f, 0.f, 0.58f * m_opacity),
+                                    std::max(8.f, rad - 6.f));
+                const nxui::Vec2 size = m_font->measure(m_widgetCaption);
+                const float width = size.x * kScale;
+                const float room = strip.width - 16.f;
+                ren.pushClipRect({strip.x + 8.f, strip.y, room, kStrip});
+                ren.drawText(m_widgetCaption,
+                    {width < room ? strip.x + (strip.width - width) * 0.5f : strip.x + 8.f,
+                     strip.y + (kStrip - size.y * kScale) * 0.5f},
+                    m_font, nxui::Color::white().withAlpha(0.96f * m_opacity), kScale);
+                ren.popClipRect();
+            }
             if (m_focused)
                 ren.drawRoundedRectOutline(inner.expanded(2.f),
                     nxui::Color::white().withAlpha(0.42f * m_opacity),

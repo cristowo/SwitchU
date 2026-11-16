@@ -4069,6 +4069,7 @@ WiiUMenuApp::listWidgetAssets(bool screenshotsOnly) const {
             std::string relative = iterator->path().string().substr(root.size());
             while (!relative.empty() && relative.front() == '/') relative.erase(relative.begin());
             if (relative.empty()) continue;
+            if (relative.rfind("pins/", 0) == 0) continue; // pinned playlists' pictures
             std::string stored = referencePrefix + relativeBase + relative;
             if (!seen.insert(stored).second) continue;
             result.emplace_back(iterator->path().filename().string(), std::move(stored));
@@ -4139,9 +4140,16 @@ void WiiUMenuApp::showWidgetTypeMenu(int targetSlot, const nxui::Rect& anchor) {
             continue;
         items.push_back({widgetTypeLabel(type),
             [this, targetSlot, anchor, type]() {
+                m_widgetMenuForPin = false;
                 showWidgetSizeMenu(targetSlot, anchor, type);
             }});
     }
+    if (m_appLayoutMode == AppLayoutMode::Grid)
+        items.push_back({i18n.tr("widget.spotify_pin", "Spotify playlist"),
+            [this, targetSlot, anchor]() {
+                m_widgetMenuForPin = true;
+                showWidgetSizeMenu(targetSlot, anchor, switchu::widgets::WidgetType::ImagePin);
+            }});
     m_contextMenu->show(anchor, i18n.tr("widget.choose_type", "Choose widget"),
                         std::move(items), 0,
                         [this, targetSlot, anchor]() {
@@ -4162,7 +4170,9 @@ void WiiUMenuApp::showWidgetSizeMenu(int targetSlot, const nxui::Rect& anchor,
             + (available ? std::string()
                          : " - " + i18n.tr("widget.no_space", "No space"));
         items.push_back({label, [this, targetSlot, anchor, type, size]() {
-            if (type == switchu::widgets::WidgetType::ImagePin)
+            if (type == switchu::widgets::WidgetType::ImagePin && m_widgetMenuForPin)
+                startSpotifyPinPicker(targetSlot, anchor, size);
+            else if (type == switchu::widgets::WidgetType::ImagePin)
                 showWidgetAssetMenu(targetSlot, anchor, type, size);
             else
                 createWidget(targetSlot, type, size);
@@ -4225,6 +4235,19 @@ void WiiUMenuApp::createWidget(int targetSlot, switchu::widgets::WidgetType type
     applyDisplayModel(buildRootFolderModel(), switchu::widgets::widgetTitleId(id), true);
 }
 
+void WiiUMenuApp::removeWidget(std::uint32_t widgetId) {
+    if (!m_widgetStore.remove(widgetId) || !saveWidgetsOrReport("delete")) return;
+    const auto pseudoId = switchu::widgets::widgetTitleId(widgetId);
+    m_retainedImagePins.erase(pseudoId);
+    std::replace(m_layoutSlots.begin(), m_layoutSlots.end(), pseudoId,
+                 std::uint64_t{0});
+    m_layoutDirty = true;
+    saveMenuLayout();
+    if (m_contextMenu) m_contextMenu->hide();
+    applyDisplayModel(buildRootFolderModel(), 0, false);
+    m_audio.playSfx(Sfx::ConfirmPositive);
+}
+
 void WiiUMenuApp::showWidgetOptionsMenu(std::uint32_t widgetId, int slot,
                                         const nxui::Rect& anchor) {
     const auto* widget = m_widgetStore.find(widgetId);
@@ -4281,19 +4304,19 @@ void WiiUMenuApp::showWidgetOptionsMenu(std::uint32_t widgetId, int slot,
         }, available});
     }
     items.push_back({i18n.tr("widget.delete", "Delete widget"),
-        [this, widgetId]() {
-            if (!m_widgetStore.remove(widgetId) || !saveWidgetsOrReport("delete")) return;
-            const auto pseudoId = switchu::widgets::widgetTitleId(widgetId);
-            m_retainedImagePins.erase(pseudoId);
-            std::replace(m_layoutSlots.begin(), m_layoutSlots.end(), pseudoId,
-                         std::uint64_t{0});
-            m_layoutDirty = true;
-            saveMenuLayout();
-            m_contextMenu->hide();
-            applyDisplayModel(buildRootFolderModel(), 0, false);
-            m_audio.playSfx(Sfx::ConfirmPositive);
-        }});
-    m_contextMenu->show(anchor, widgetTypeLabel(widget->type), std::move(items));
+        [this, widgetId]() { removeWidget(widgetId); }});
+    const bool pinned = widget->type == switchu::widgets::WidgetType::ImagePin
+        && isSpotifyPinRef(widget->assetRef);
+    if (pinned)
+        items.insert(items.begin(), {i18n.tr("widget.play_playlist", "Play"),
+            [this, widgetId]() {
+                m_contextMenu->hide();
+                playSpotifyPin(widgetId);
+            }});
+    m_contextMenu->show(anchor,
+                        pinned ? i18n.tr("widget.spotify_pin", "Spotify playlist")
+                               : widgetTypeLabel(widget->type),
+                        std::move(items));
     m_audio.playSfx(Sfx::ModalShow);
     focusManager().setFocus(m_contextMenu.get());
 }
@@ -6506,6 +6529,15 @@ std::shared_ptr<GlossyIcon> WiiUMenuApp::makeIcon(const AppEntry& entry) {
             icon->setOnActivate([this]() {
                 toggleActiveMusic();
                 m_audio.playSfx(Sfx::Activate);
+            });
+        }
+        if (entry.widgetType == switchu::widgets::WidgetType::ImagePin &&
+            isSpotifyPinRef(entry.widgetAssetRef)) {
+            applySpotifyPinWidget(*icon, entry.widgetAssetRef);
+            const std::uint32_t pinWidgetId = entry.widgetId;
+            icon->setOnActivate([this, pinWidgetId]() {
+                m_audio.playSfx(Sfx::Activate);
+                playSpotifyPin(pinWidgetId);
             });
         }
         if (entry.widgetType == switchu::widgets::WidgetType::SpotifyPlaylists) {
@@ -10350,7 +10382,9 @@ std::vector<WiiUMenuApp::ActionHint> WiiUMenuApp::buildActionHints() {
                 if (entry->widgetType == switchu::widgets::WidgetType::NowPlaying)
                     add(buttonGlyph(nxui::Button::A),
                         i18n.tr("widget.play_pause", "Play/Pause"));
-                if (entry->widgetType == switchu::widgets::WidgetType::SpotifyPlaylists)
+                if (entry->widgetType == switchu::widgets::WidgetType::SpotifyPlaylists ||
+                    (entry->widgetType == switchu::widgets::WidgetType::ImagePin &&
+                     isSpotifyPinRef(entry->widgetAssetRef)))
                     add(buttonGlyph(nxui::Button::A),
                         i18n.tr("widget.play_playlist", "Play"));
                 add(buttonGlyph(nxui::Button::Plus), i18n.tr("hint.options", "Options"));

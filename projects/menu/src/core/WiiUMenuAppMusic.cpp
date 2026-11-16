@@ -10,7 +10,10 @@
 #endif
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <nxui/core/I18n.hpp>
 #include <nxui/third_party/stb/stb_image.h>
@@ -383,6 +386,383 @@ void WiiUMenuApp::applyNowPlayingWidget(GlossyIcon& icon) const {
                            m_nowPlayingView.time);
 }
 
+// ── A Spotify playlist (album, artist) pinned on HOME ──
+
+namespace {
+constexpr const char* kPinRefPrefix = "widget:pins/";
+
+// Beside the picture: URI, name, picture URL, and "gone" once Spotify has
+// answered that it no longer exists for this account.
+std::string pinTextPath(const std::string& picturePath) {
+    const auto dot = picturePath.rfind('.');
+    return (dot == std::string::npos ? picturePath : picturePath.substr(0, dot)) + ".txt";
+}
+
+std::int64_t fileTime(const std::string& path) {
+    std::error_code error;
+    const auto time = std::filesystem::last_write_time(path, error);
+    return error ? 0 : static_cast<std::int64_t>(time.time_since_epoch().count());
+}
+} // namespace
+
+bool WiiUMenuApp::isSpotifyPinRef(const std::string& assetRef) {
+    return assetRef.rfind(kPinRefPrefix, 0) == 0;
+}
+
+bool WiiUMenuApp::loadSpotifyPin(const std::string& assetRef, SpotifyPin& pin) const {
+    std::ifstream file(pinTextPath(resolveWidgetAssetRef(assetRef)));
+    if (!file.is_open()) return false;
+    std::string state;
+    std::getline(file, pin.uri);
+    std::getline(file, pin.name);
+    std::getline(file, pin.imageUrl);
+    std::getline(file, state);
+    pin.gone = state == "gone";
+    return !pin.uri.empty();
+}
+
+void WiiUMenuApp::saveSpotifyPin(const std::string& assetRef, const SpotifyPin& pin) const {
+    const std::string path = pinTextPath(resolveWidgetAssetRef(assetRef));
+    std::error_code error;
+    std::filesystem::create_directories(std::filesystem::path(path).parent_path(), error);
+    std::ofstream file(path, std::ios::trunc);
+    file << pin.uri << '\n' << pin.name << '\n' << pin.imageUrl << '\n'
+         << (pin.gone ? "gone" : "") << '\n';
+}
+
+void WiiUMenuApp::applySpotifyPinWidget(GlossyIcon& icon, const std::string& assetRef) const {
+    auto& i18n = nxui::I18n::instance();
+    SpotifyPin pin;
+    if (!loadSpotifyPin(assetRef, pin)) {
+        icon.setWidgetText(i18n.tr("widget.spotify_pin", "Spotify playlist"), {});
+        icon.setWidgetCaption({}, false);
+        return;
+    }
+    const std::string unavailable = i18n.tr("widget.pin_unavailable", "Unavailable");
+    // The text shows while there is no picture; the caption goes over it.
+    icon.setWidgetText(pin.name, pin.gone ? unavailable
+        : i18n.tr("quicksettings.source_spotify", "Spotify"));
+    icon.setWidgetCaption(pin.gone ? unavailable : pin.name, pin.gone);
+}
+
+void WiiUMenuApp::refreshSpotifyPinWidgets() {
+    if (!m_grid) return;
+    const auto& icons = m_grid->allIcons();
+    for (int i = 0; i < m_model.count() && i < static_cast<int>(icons.size()); ++i) {
+        const auto& entry = m_model.at(i);
+        if (icons[static_cast<std::size_t>(i)] && entry.isWidget() &&
+            entry.widgetType == switchu::widgets::WidgetType::ImagePin &&
+            isSpotifyPinRef(entry.widgetAssetRef))
+            applySpotifyPinWidget(*icons[static_cast<std::size_t>(i)], entry.widgetAssetRef);
+    }
+}
+
+void WiiUMenuApp::startSpotifyPinPicker(int targetSlot, const nxui::Rect& anchor,
+                                        switchu::widgets::WidgetSize size) {
+    auto& i18n = nxui::I18n::instance();
+    if (!m_switify.nowPlaying().controllable()) {
+        nxui::Widget* returnFocus = m_contextMenuReturnFocus;
+        m_contextMenu->hide();
+        m_dialogReturnFocus = returnFocus;
+        m_dialog->show(i18n.tr("widget.pin_not_ready_title", "Spotify is not ready"),
+            i18n.tr("widget.pin_not_ready_desc",
+                "Start Spotify first, from the music widget or Quick Settings, then add the playlist."),
+            {{i18n.tr("button.ok", "OK"), {}, true}});
+        focusManager().setFocus(m_dialog.get());
+        return;
+    }
+    m_pinPicker = {};
+    m_pinPicker.waiting = true;
+    m_pinPicker.targetSlot = targetSlot;
+    m_pinPicker.anchor = anchor;
+    m_pinPicker.size = size;
+    m_switify.setDemand(sw::Client::Demand::Active);
+    m_switify.browse(sw::IpcCommand::BrowseLibrary);
+    m_contextMenu->show(anchor, i18n.tr("widget.pin_choose", "Choose playlist"),
+        {{i18n.tr("widget.playlists_loading", "Loading your library..."), {}, false}}, 0,
+        [this, targetSlot, anchor]() {
+            m_pinPicker.waiting = false;
+            showWidgetTypeMenu(targetSlot, anchor);
+        });
+    focusManager().setFocus(m_contextMenu.get());
+}
+
+bool WiiUMenuApp::spotifyLibraryList(const sw::BrowsePage& page) {
+    if (page.depth != 0) return page.depth == 1;
+    int section = -1;
+    for (std::size_t i = 0; i < page.items.size(); ++i) {
+        const auto& item = page.items[i];
+        if (item.track) continue;
+        if (item.kind != sw::kBrowseKindSection) return true; // listed right here
+        if (section < 0) section = static_cast<int>(i);
+    }
+    if (section < 0) return true; // nothing to open: an empty library
+    // "Playlists and liked songs". The page reads "loading" until it comes.
+    m_switify.browse(sw::IpcCommand::BrowseOpen, page.generation,
+                     static_cast<std::uint32_t>(section));
+    return false;
+}
+
+void WiiUMenuApp::pollSpotifyPinPicker() {
+    auto& picker = m_pinPicker;
+    if (!picker.waiting) return;
+    if (!m_contextMenu || !m_contextMenu->isActive()) {
+        picker.waiting = false; // closed meanwhile
+        return;
+    }
+    auto& i18n = nxui::I18n::instance();
+    const auto fail = [this, &picker, &i18n](const std::string& text) {
+        picker.waiting = false;
+        m_spotifyBrowseRoot = true; // Quick Settings opens at its own root
+        nxui::Widget* returnFocus = m_contextMenuReturnFocus;
+        m_contextMenu->hide();
+        m_dialogReturnFocus = returnFocus;
+        m_dialog->show(i18n.tr("widget.spotify_pin", "Spotify playlist"), text,
+                       {{i18n.tr("button.ok", "OK"), {}, true}});
+        focusManager().setFocus(m_dialog.get());
+    };
+    picker.waited += kMusicLinkPeriod;
+    const auto page = m_switify.browsePage();
+    if (page.state == sw::kBrowseError || picker.waited > 20.f) {
+        fail(i18n.tr("widget.pin_library_failed",
+                     "Your library could not be read. Check the internet connection and try again."));
+        return;
+    }
+    if (page.state != sw::kBrowseReady || !spotifyLibraryList(page)) return;
+
+    std::vector<ContextMenu::Item> items;
+    bool anyCollection = false;
+    for (const auto& item : page.items) {
+        if (item.track || item.kind == sw::kBrowseKindSection) continue;
+        anyCollection = true;
+        if (item.uri.empty()) continue;
+        SpotifyPin pin;
+        pin.uri = item.uri;
+        pin.name = item.name;
+        pin.imageUrl = item.imageUrl;
+        std::string label = item.name;
+        if (!item.detail.empty()) label += " · " + item.detail;
+        items.push_back({std::move(label),
+            [this, slot = picker.targetSlot, size = picker.size, pin]() {
+                createSpotifyPin(slot, size, pin);
+            }});
+    }
+    DebugLog::log("[pin] library depth=%u items=%zu with a link=%zu",
+                  static_cast<unsigned>(page.depth), page.items.size(), items.size());
+    if (items.empty()) {
+        fail(anyCollection
+            ? i18n.tr("widget.pin_old_switify",
+                      "This needs the Switify build that comes with SwitchU. Update it and try again.")
+            : i18n.tr("widget.playlists_empty", "No playlists found"));
+        return;
+    }
+    picker.waiting = false;
+    m_spotifyBrowseRoot = true;
+    m_contextMenu->show(picker.anchor, i18n.tr("widget.pin_choose", "Choose playlist"),
+        std::move(items), 0,
+        [this, slot = picker.targetSlot, anchor = picker.anchor]() {
+            showWidgetTypeMenu(slot, anchor);
+        });
+    focusManager().setFocus(m_contextMenu.get());
+}
+
+void WiiUMenuApp::createSpotifyPin(int targetSlot, switchu::widgets::WidgetSize size,
+                                   const SpotifyPin& pin) {
+    // spotify:playlist:xyz -> pins/spotify_playlist_xyz.jpg. Two tiles of the
+    // same playlist share the files.
+    std::string key = pin.uri;
+    for (char& ch : key)
+        if (!std::isalnum(static_cast<unsigned char>(ch))) ch = '_';
+    const std::string assetRef = std::string(kPinRefPrefix) + key + ".jpg";
+    saveSpotifyPin(assetRef, pin);
+    requestSpotifyPinPicture(assetRef, pin, false);
+    DebugLog::log("[pin] created %s '%s'", pin.uri.c_str(), pin.name.c_str());
+    createWidget(targetSlot, switchu::widgets::WidgetType::ImagePin, size, assetRef);
+}
+
+void WiiUMenuApp::requestSpotifyPinPicture(const std::string& assetRef, const SpotifyPin& pin,
+                                           bool again) {
+    const std::string path = resolveWidgetAssetRef(assetRef);
+    if (pin.imageUrl.empty() || path.empty()) return;
+    const std::int64_t before = fileTime(path);
+    if (before != 0 && !again) return;         // already has its picture
+    if (!m_pinPicturesAsked.insert(pin.imageUrl).second) return;
+    m_switify.start(); // its worker does the download; Spotify need not run
+    m_switify.fetchImage(pin.imageUrl, path);
+    m_pinPictures[path] = {before, 0.f};
+}
+
+void WiiUMenuApp::playSpotifyPin(std::uint32_t widgetId) {
+    if (!m_widgetStore.find(widgetId)) return;
+    if (!m_switify.nowPlaying().controllable()) {
+        // Starting the service asks first; the playlist starts once it is up.
+        m_pinPlay = {};
+        m_pinPlay.widgetId = widgetId;
+        m_pinPlay.waitingForService = true;
+        requestSwitifyPlayback();
+        return;
+    }
+    startSpotifyPin(widgetId);
+}
+
+void WiiUMenuApp::startSpotifyPin(std::uint32_t widgetId) {
+    const auto* widget = m_widgetStore.find(widgetId);
+    SpotifyPin pin;
+    if (!widget || !loadSpotifyPin(widget->assetRef, pin)) return;
+    const auto info = m_switify.pinInfo();
+    // Already what plays: A is play/pause, like the song's widget.
+    if (spotifySource() && info.state == sw::kPinStarted && info.current &&
+        info.uri == pin.uri && m_switify.nowPlaying().hasTrack) {
+        toggleActiveMusic();
+        return;
+    }
+    if (!spotifySource()) setMusicSource(true);
+    pauseLocalForSpotify();
+    // Shuffle and repeat are Switify's own state (Quick Settings sets them):
+    // it starts on a random song when shuffle is on.
+    m_switify.playUri(pin.uri, pin.name);
+    m_pinPlay = {};
+    m_pinPlay.widgetId = widgetId;
+    m_pinPlay.uri = pin.uri;
+    m_pinPlay.active = true;
+    m_switify.setPinWatch(true);
+    if (m_grid) {
+        const auto& icons = m_grid->allIcons();
+        for (int i = 0; i < m_model.count() && i < static_cast<int>(icons.size()); ++i)
+            if (icons[static_cast<std::size_t>(i)] && m_model.at(i).isWidget() &&
+                m_model.at(i).widgetId == widgetId)
+                icons[static_cast<std::size_t>(i)]->setWidgetCaption(
+                    nxui::I18n::instance().tr("widget.playlists_starting", "Starting..."), false);
+    }
+    DebugLog::log("[pin] play %s '%s'", pin.uri.c_str(), pin.name.c_str());
+}
+
+void WiiUMenuApp::pollSpotifyPins() {
+    const auto& widgets = m_widgetStore.all();
+    const auto isPin = [](const switchu::widgets::Widget& widget) {
+        return widget.type == switchu::widgets::WidgetType::ImagePin &&
+               isSpotifyPinRef(widget.assetRef);
+    };
+    const bool any = std::any_of(widgets.begin(), widgets.end(), isPin);
+    auto& play = m_pinPlay;
+    m_switify.setPinWatch(any || play.active);
+    if (!any && !play.active && !play.waitingForService && m_pinPictures.empty()) return;
+    auto& i18n = nxui::I18n::instance();
+
+    // A picture lost from the card (or never downloaded): once a session.
+    if (!m_pinPicturesChecked) {
+        m_pinPicturesChecked = true;
+        for (const auto& widget : widgets) {
+            SpotifyPin pin;
+            if (isPin(widget) && loadSpotifyPin(widget.assetRef, pin))
+                requestSpotifyPinPicture(widget.assetRef, pin, false);
+        }
+    }
+
+    // Pictures that arrived: the tiles showing that file load it again.
+    for (auto it = m_pinPictures.begin(); it != m_pinPictures.end();) {
+        it->second.waited += kMusicLinkPeriod;
+        const std::int64_t time = fileTime(it->first);
+        if (time != 0 && time != it->second.before) {
+            if (m_grid)
+                for (const auto& icon : m_grid->allIcons())
+                    if (icon && icon->widgetImageAssetPath() == it->first) {
+                        if (icon->isWidgetImageAssetLoaded())
+                            icon->unloadWidgetImageAsset();
+                        icon->allowWidgetImageAssetRetry();
+                    }
+            DebugLog::log("[pin] picture arrived");
+            it = m_pinPictures.erase(it);
+        } else if (it->second.waited > 60.f) {
+            it = m_pinPictures.erase(it); // no connection: next session asks again
+        } else {
+            ++it;
+        }
+    }
+
+    if (play.waitingForService) {
+        play.waited += kMusicLinkPeriod;
+        if (m_switify.nowPlaying().controllable()) {
+            const std::uint32_t widgetId = play.widgetId;
+            play = {};
+            startSpotifyPin(widgetId);
+        } else if (play.waited > 90.f) {
+            play = {};
+        }
+        return;
+    }
+    if (!play.active) return;
+
+    play.waited += kMusicLinkPeriod;
+    const auto info = m_switify.pinInfo();
+    const bool answered = info.uri == play.uri &&
+        (info.state == sw::kPinStarted || info.state == sw::kPinUnavailable ||
+         info.state == sw::kPinFailed);
+    if (!answered) {
+        if (play.waited > 30.f) {
+            DebugLog::log("[pin] no answer");
+            play = {};
+            refreshSpotifyPinWidgets();
+        }
+        return;
+    }
+    const std::uint32_t widgetId = play.widgetId;
+    play = {};
+    refreshSpotifyPinWidgets(); // its name back in place of "Starting..." 
+    const auto* widget = m_widgetStore.find(widgetId);
+    SpotifyPin pin;
+    if (!widget || !loadSpotifyPin(widget->assetRef, pin)) return;
+    const std::string assetRef = widget->assetRef;
+    DebugLog::log("[pin] answer state=%u", static_cast<unsigned>(info.state));
+
+    const auto tell = [this, &i18n](const std::string& title, const std::string& text,
+                                    std::function<void()> remove) {
+        if (!m_dialog || m_lockScreenActive) return;
+        m_dialogReturnFocus = focusManager().current();
+        if (remove)
+            m_dialog->show(title, text,
+                {{i18n.tr("button.ok", "OK"), []() {}, true},
+                 {i18n.tr("widget.delete", "Delete widget"), remove}});
+        else
+            m_dialog->show(title, text, {{i18n.tr("button.ok", "OK"), []() {}, true}});
+        focusManager().setFocus(m_dialog.get());
+    };
+
+    if (info.state == sw::kPinStarted) {
+        // Renamed, or a new picture: the tile follows.
+        bool changed = pin.gone;
+        pin.gone = false;
+        if (!info.name.empty() && info.name != pin.name) {
+            pin.name = info.name;
+            changed = true;
+        }
+        const bool newPicture = !info.imageUrl.empty() && info.imageUrl != pin.imageUrl;
+        if (newPicture) {
+            pin.imageUrl = info.imageUrl;
+            changed = true;
+        }
+        if (changed) {
+            saveSpotifyPin(assetRef, pin);
+            refreshSpotifyPinWidgets();
+        }
+        if (newPicture) requestSpotifyPinPicture(assetRef, pin, true);
+    } else if (info.state == sw::kPinUnavailable) {
+        if (!pin.gone) {
+            pin.gone = true;
+            saveSpotifyPin(assetRef, pin);
+            refreshSpotifyPinWidgets();
+        }
+        tell(i18n.tr("widget.pin_gone_title", "Playlist unavailable"),
+             i18n.tr("widget.pin_gone_desc",
+                     "Spotify no longer has this playlist for your account, or it is empty."),
+             [this, widgetId]() { removeWidget(widgetId); });
+    } else {
+        tell(i18n.tr("widget.pin_failed_title", "Could not play"),
+             i18n.tr("widget.pin_failed_desc",
+                     "Check the internet connection and try again."), {});
+    }
+}
+
 void WiiUMenuApp::applyPlaylistShelfWidget(GlossyIcon& icon) const {
     auto& i18n = nxui::I18n::instance();
     const auto& shelf = m_playlistShelf;
@@ -498,7 +878,7 @@ void WiiUMenuApp::pollPlaylistShelf() {
     switch (shelf.step) {
         case PlaylistShelf::Step::Listing:
         case PlaylistShelf::Step::OpeningLibrary: {
-            if (page.depth != 0) return;
+            if (!spotifyLibraryList(page)) return;
             std::vector<std::string> names, details;
             int found = -1;
             for (std::size_t i = 0; i < page.items.size(); ++i) {
@@ -527,12 +907,13 @@ void WiiUMenuApp::pollPlaylistShelf() {
             }
             shelf.step = PlaylistShelf::Step::OpeningList;
             shelf.waited = 0.f;
+            shelf.openedFrom = page.generation;
             m_switify.browse(sw::IpcCommand::BrowseOpen, page.generation,
                              static_cast<std::uint32_t>(found));
             return;
         }
         case PlaylistShelf::Step::OpeningList: {
-            if (page.depth == 0) return;
+            if (page.generation == shelf.openedFrom) return; // still the list
             std::vector<std::uint32_t> tracks;
             for (std::size_t i = 0; i < page.items.size(); ++i)
                 if (page.items[i].track) tracks.push_back(static_cast<std::uint32_t>(i));
@@ -898,6 +1279,7 @@ void WiiUMenuApp::pollMusicLink(float dt) {
     // Pages are only read while someone browses: Quick Settings, or the
     // playlists widget walking to a playlist.
     m_switify.setDemand((m_quickSettings && m_quickSettings->isActive()) ||
+                                m_pinPicker.waiting ||
                                 m_playlistShelf.step != PlaylistShelf::Step::Idle
         ? sw::Client::Demand::Active : sw::Client::Demand::Background);
 
@@ -919,6 +1301,8 @@ void WiiUMenuApp::pollMusicLink(float dt) {
     }
     m_spotifyWasPlaying = now.playing;
     pollPlaylistShelf();
+    pollSpotifyPinPicker();
+    pollSpotifyPins();
 
     if (m_switifyAutoPlay) {
         constexpr float kGiveUpSeconds = 30.f;

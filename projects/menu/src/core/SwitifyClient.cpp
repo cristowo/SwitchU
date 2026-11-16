@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <exception>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <sys/stat.h>
@@ -196,6 +197,28 @@ void Client::browse(IpcCommand command, std::uint64_t generation,
     queue(std::move(request));
 }
 
+void Client::playUri(const std::string& uri, const std::string& name) {
+    Request request;
+    request.command = IpcCommand::PlayUri;
+    // "uri\nname": the name is Switify's label for what plays.
+    request.query = uri + "\n" + name;
+    request.isBrowse = true; // same wire shape; the browse page stays as it is
+    queue(std::move(request));
+}
+
+PinInfo Client::pinInfo() const {
+    std::lock_guard lock(m_mutex);
+    return m_pin;
+}
+
+void Client::fetchImage(std::string url, std::string path) {
+    Request request;
+    request.isFetch = true;
+    request.query = std::move(url);
+    request.path = std::move(path);
+    queue(std::move(request));
+}
+
 void Client::launchService() {
     Request request;
     request.isLaunch = true;
@@ -239,10 +262,42 @@ void Client::execute(const Request& request) {
         return;
     }
 
+    if (request.isFetch) {
+        // Plain HTTPS: Switify does not have to be running.
+        try {
+            const auto bytes = themeshop::http::getBytes(request.query, {}, {}, [this]() {
+                return m_stop.load();
+            });
+            if (isJpeg(bytes) && bytes.size() <= kMaxCoverBytes) {
+                std::error_code error;
+                std::filesystem::create_directories(
+                    std::filesystem::path(request.path).parent_path(), error);
+                writeFileAtomically(request.path, bytes);
+            } else {
+                DebugLog::log("[switify] picture refused (%zu bytes)", bytes.size());
+            }
+        } catch (const std::exception& error) {
+            DebugLog::log("[switify] picture download failed: %s", error.what());
+        }
+        return;
+    }
+
     if (!connect()) return;
     Result rc = 0;
     const auto id = static_cast<std::uint32_t>(request.command);
     if (request.isBrowse) {
+        if (request.command != IpcCommand::BrowsePlay &&
+            request.command != IpcCommand::PlayUri) {
+            // The page the service shows now is not the answer, whatever this
+            // client last read (nothing, in a menu that has just started).
+            IpcBrowseHeader header{};
+            if (R_SUCCEEDED(serviceDispatchOut(&g_service,
+                    static_cast<std::uint32_t>(IpcCommand::GetBrowseHeader), header)) &&
+                header.structSize == sizeof(header)) {
+                std::lock_guard lock(m_mutex);
+                m_staleGeneration = header.generation;
+            }
+        }
         IpcBrowseRequest body{};
         body.generation = request.generation;
         body.index = request.index;
@@ -362,11 +417,55 @@ void Client::pollBrowse() {
             entry.subtitle = boundedString(item.subtitle);
             entry.detail = boundedString(item.detail);
             entry.durationMs = item.durationMs;
+            // A collection's URI and picture, for pinning it. The official
+            // Switify rejects the commands: asked once, then never again.
+            if (m_pinCommands && !entry.track && item.kind != kBrowseKindSection) {
+                for (const bool image : {false, true}) {
+                    IpcBrowseText text{};
+                    const Result rc = serviceDispatchInOut(&g_service,
+                        static_cast<std::uint32_t>(image ? IpcCommand::GetBrowseItemImage
+                                                         : IpcCommand::GetBrowseItemUri),
+                        index, text);
+                    if (R_FAILED(rc)) {
+                        if (R_MODULE(rc) == kControlResultModule) {
+                            m_pinCommands = false;
+                            DebugLog::log("[switify] this build cannot pin playlists");
+                        }
+                        break;
+                    }
+                    if (text.structSize != sizeof(text) || text.generation != header.generation)
+                        break;
+                    (image ? entry.imageUrl : entry.uri) = boundedString(text.text);
+                }
+            }
             page.items.push_back(std::move(entry));
         }
     }
     std::lock_guard lock(m_mutex);
     m_browse = std::move(page);
+}
+
+void Client::pollPin() {
+    if (!m_connected || !m_pinCommands) return;
+    const auto ask = [this](std::uint32_t what, IpcBrowseText& text) {
+        const Result rc = serviceDispatchInOut(&g_service,
+            static_cast<std::uint32_t>(IpcCommand::GetPinInfo), what, text);
+        if (R_FAILED(rc) && R_MODULE(rc) == kControlResultModule)
+            m_pinCommands = false;
+        return R_SUCCEEDED(rc) && text.structSize == sizeof(text);
+    };
+    IpcBrowseText text{};
+    if (!ask(kPinInfoUri, text)) return;
+    PinInfo info;
+    info.state = text.kind;
+    info.current = (text.flags & kPinFlagCurrent) != 0;
+    info.uri = boundedString(text.text);
+    if (info.state == kPinStarted) {
+        if (ask(kPinInfoName, text)) info.name = boundedString(text.text);
+        if (ask(kPinInfoImage, text)) info.imageUrl = boundedString(text.text);
+    }
+    std::lock_guard lock(m_mutex);
+    m_pin = std::move(info);
 }
 
 void Client::pollCover(bool hasTrack) {
@@ -452,6 +551,7 @@ void Client::run() {
             pollStatus();
             if (active) pollBrowse();
             pollCover(nowPlaying().hasTrack);
+            if (m_pinWatch.load()) pollPin();
             nextFullPoll = Clock::now() + period;
         }
 
