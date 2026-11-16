@@ -194,7 +194,14 @@ target("SwitchU")
     add_deps("nxui")
     add_includedirs("projects/common/include", {public = false})
     add_includedirs("projects/menu/src", {public = false})
-    add_files("projects/menu/src/**.cpp")
+    -- Screens that never run per frame are built for size: the menu's
+    -- executable is read and unpacked on every HOME press. What draws or
+    -- decodes (core, widgets, artwork, icons, sidebar) keeps -O3.
+    local cold = {"settings", "themeshop", "tutorial", "bluetooth", "usb", "launcher"}
+    add_files("projects/menu/src/**.cpp|" .. table.concat(cold, "/**.cpp|") .. "/**.cpp")
+    for _, dir in ipairs(cold) do
+        add_files("projects/menu/src/" .. dir .. "/**.cpp", {force = {cxflags = "-Os"}})
+    end
     add_packages("nlohmann_json", "fmt", "libsdl", "libsdl_mixer", "libsdl_ttf", "zlib", "libwebp", "libcurl", "curlpp")
     add_linkgroups("SDL2_ttf", "harfbuzz-subset", "harfbuzz", "freetype", "png16", "bz2", "z", {group = true})
     add_linkgroups("SDL2_mixer", "FLAC++", "FLAC", "vorbisidec", "ogg", "modplug", "opusurl", "opusfile", "opus", {group = true})

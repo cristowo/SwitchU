@@ -919,6 +919,7 @@
     "playlists_header": "Spotify · Tus playlists",
     "playlists_empty": "No hay playlists",
     "spotify_pin": "Playlist de Spotify",
+    "pin_change": "Cambiar playlist",
     "pin_choose": "Elige la playlist",
     "pin_not_ready_title": "Spotify no está listo",
     "pin_not_ready_desc": "Inicia Spotify primero, desde el widget de música o los Ajustes rápidos, y luego añade la playlist.",

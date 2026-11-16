@@ -217,10 +217,28 @@ private:
     // The Spotify playlists widget: your library's playlists, one at a time.
     // Playing one walks Switify's browser (library, playlist, first track)
     // a page per poll.
+    // What the per-frame showFocusedSteamGridDbArtwork() call reads.
+    struct BackdropSyncKey {
+        const void*   focus = nullptr;
+        int           focusIndex = -1;
+        std::uint64_t held = 0;
+        int           layout = -1;
+        int           modelCount = -1;
+        bool          edit = false;
+        bool          deferPreload = false;
+        bool          allowed = false;
+        bool          heroShown = false;
+        bool operator==(const BackdropSyncKey&) const = default;
+    };
+    BackdropSyncKey m_lastBackdropSync{};
+    bool            m_backdropSyncValid = false;
+    float           m_backdropSyncSec = 0.f;
+
     struct PlaylistShelf {
         enum class Step { Idle, Listing, OpeningLibrary, OpeningList };
         std::vector<std::string> names;
         std::vector<std::string> details;
+        std::vector<std::string> uris; // per name; empty with the official Switify
         int index = 0;
         Step step = Step::Idle;
         std::string target;
@@ -263,9 +281,14 @@ private:
     void saveSpotifyPin(const std::string& assetRef, const SpotifyPin& pin) const;
     void applySpotifyPinWidget(GlossyIcon& icon, const std::string& assetRef) const;
     void refreshSpotifyPinWidgets();
+    // replaceWidgetId: an existing tile gets the chosen playlist instead.
     void startSpotifyPinPicker(int targetSlot, const nxui::Rect& anchor,
-                               switchu::widgets::WidgetSize size);
+                               switchu::widgets::WidgetSize size,
+                               std::uint32_t replaceWidgetId = 0);
+    void showSpotifyPinPickerLoading();
     void pollSpotifyPinPicker();
+    std::string prepareSpotifyPin(const SpotifyPin& pin); // its files; the assetRef
+    void changeSpotifyPin(std::uint32_t widgetId, const SpotifyPin& pin);
     void createSpotifyPin(int targetSlot, switchu::widgets::WidgetSize size,
                           const SpotifyPin& pin);
     void requestSpotifyPinPicture(const std::string& assetRef, const SpotifyPin& pin, bool again);
@@ -876,6 +899,7 @@ private:
         int targetSlot = 0;
         nxui::Rect anchor{};
         switchu::widgets::WidgetSize size{};
+        std::uint32_t replaceWidgetId = 0;
     };
     PinPicker m_pinPicker;
     bool m_widgetMenuForPin = false; // the size menu leads to the picker

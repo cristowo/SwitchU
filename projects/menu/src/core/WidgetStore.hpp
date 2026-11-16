@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include "AppLayoutMode.hpp"
 
 #include <cstdint>
@@ -89,6 +90,10 @@ public:
     // a launch or a return, where only that entry is new and a lag spike is
     // the price. The menu's exit and every power action commit afterwards.
     bool save(bool durable = true) const;
+    // The same as save(false), for a worker: the text is taken now, the SD is
+    // written when the task runs (~150 ms that used to freeze a frame). A save
+    // made after this one is never overwritten by it.
+    std::function<void()> saveTask() const;
 
     const std::vector<Widget>& all() const { return m_widgets; }
     Widget* find(std::uint32_t id);
@@ -105,6 +110,9 @@ public:
     void setTotalSeconds(std::uint64_t seconds) { m_recent.totalSeconds = seconds; }
 
 private:
+    std::string serialize() const;
+    static bool write(const std::string& text, bool durable, std::size_t count,
+                      std::uint64_t sequence);
     std::vector<Widget> m_widgets;
     RecentActivity m_recent;
     std::uint32_t m_nextId = 1;

@@ -458,7 +458,8 @@ void WiiUMenuApp::refreshSpotifyPinWidgets() {
 }
 
 void WiiUMenuApp::startSpotifyPinPicker(int targetSlot, const nxui::Rect& anchor,
-                                        switchu::widgets::WidgetSize size) {
+                                        switchu::widgets::WidgetSize size,
+                                        std::uint32_t replaceWidgetId) {
     auto& i18n = nxui::I18n::instance();
     if (!m_switify.nowPlaying().controllable()) {
         nxui::Widget* returnFocus = m_contextMenuReturnFocus;
@@ -476,13 +477,23 @@ void WiiUMenuApp::startSpotifyPinPicker(int targetSlot, const nxui::Rect& anchor
     m_pinPicker.targetSlot = targetSlot;
     m_pinPicker.anchor = anchor;
     m_pinPicker.size = size;
+    m_pinPicker.replaceWidgetId = replaceWidgetId;
     m_switify.setDemand(sw::Client::Demand::Active);
     m_switify.browse(sw::IpcCommand::BrowseLibrary);
-    m_contextMenu->show(anchor, i18n.tr("widget.pin_choose", "Choose playlist"),
+    showSpotifyPinPickerLoading();
+}
+
+void WiiUMenuApp::showSpotifyPinPickerLoading() {
+    auto& i18n = nxui::I18n::instance();
+    m_pinPicker.waiting = true;
+    m_pinPicker.waited = 0.f;
+    m_contextMenu->show(m_pinPicker.anchor, i18n.tr("widget.pin_choose", "Choose playlist"),
         {{i18n.tr("widget.playlists_loading", "Loading your library..."), {}, false}}, 0,
-        [this, targetSlot, anchor]() {
+        [this]() {
             m_pinPicker.waiting = false;
-            showWidgetTypeMenu(targetSlot, anchor);
+            // Adding one goes back a step; changing one just closes.
+            if (m_pinPicker.replaceWidgetId == 0)
+                showWidgetTypeMenu(m_pinPicker.targetSlot, m_pinPicker.anchor);
         });
     focusManager().setFocus(m_contextMenu.get());
 }
@@ -530,10 +541,23 @@ void WiiUMenuApp::pollSpotifyPinPicker() {
     }
     if (page.state != sw::kBrowseReady || !spotifyLibraryList(page)) return;
 
-    std::vector<ContextMenu::Item> items;
+    std::vector<ContextMenu::Item> items, pages;
     bool anyCollection = false;
-    for (const auto& item : page.items) {
-        if (item.track || item.kind == sw::kBrowseKindSection) continue;
+    for (std::size_t i = 0; i < page.items.size(); ++i) {
+        const auto& item = page.items[i];
+        if (item.track) continue;
+        if (item.kind == sw::kBrowseKindSection) {
+            // More than a page of them: Switify's own "next" and "previous".
+            if (page.depth == 0) continue;
+            std::string label = item.name;
+            if (!item.subtitle.empty()) label += " · " + item.subtitle;
+            pages.push_back({std::move(label),
+                [this, generation = page.generation, index = static_cast<std::uint32_t>(i)]() {
+                    m_switify.browse(sw::IpcCommand::BrowseOpen, generation, index);
+                    showSpotifyPinPickerLoading();
+                }});
+            continue;
+        }
         anyCollection = true;
         if (item.uri.empty()) continue;
         SpotifyPin pin;
@@ -543,12 +567,20 @@ void WiiUMenuApp::pollSpotifyPinPicker() {
         std::string label = item.name;
         if (!item.detail.empty()) label += " · " + item.detail;
         items.push_back({std::move(label),
-            [this, slot = picker.targetSlot, size = picker.size, pin]() {
-                createSpotifyPin(slot, size, pin);
+            [this, slot = picker.targetSlot, size = picker.size,
+             replace = picker.replaceWidgetId, pin]() {
+                if (replace != 0)
+                    changeSpotifyPin(replace, pin);
+                else
+                    createSpotifyPin(slot, size, pin);
             }});
     }
-    DebugLog::log("[pin] library depth=%u items=%zu with a link=%zu",
-                  static_cast<unsigned>(page.depth), page.items.size(), items.size());
+    DebugLog::log("[pin] library depth=%u items=%zu with a link=%zu pages=%zu",
+                  static_cast<unsigned>(page.depth), page.items.size(), items.size(),
+                  pages.size());
+    if (!items.empty())
+        items.insert(items.end(), std::make_move_iterator(pages.begin()),
+                     std::make_move_iterator(pages.end()));
     if (items.empty()) {
         fail(anyCollection
             ? i18n.tr("widget.pin_old_switify",
@@ -560,14 +592,14 @@ void WiiUMenuApp::pollSpotifyPinPicker() {
     m_spotifyBrowseRoot = true;
     m_contextMenu->show(picker.anchor, i18n.tr("widget.pin_choose", "Choose playlist"),
         std::move(items), 0,
-        [this, slot = picker.targetSlot, anchor = picker.anchor]() {
-            showWidgetTypeMenu(slot, anchor);
+        [this]() {
+            if (m_pinPicker.replaceWidgetId == 0)
+                showWidgetTypeMenu(m_pinPicker.targetSlot, m_pinPicker.anchor);
         });
     focusManager().setFocus(m_contextMenu.get());
 }
 
-void WiiUMenuApp::createSpotifyPin(int targetSlot, switchu::widgets::WidgetSize size,
-                                   const SpotifyPin& pin) {
+std::string WiiUMenuApp::prepareSpotifyPin(const SpotifyPin& pin) {
     // spotify:playlist:xyz -> pins/spotify_playlist_xyz.jpg. Two tiles of the
     // same playlist share the files.
     std::string key = pin.uri;
@@ -576,8 +608,26 @@ void WiiUMenuApp::createSpotifyPin(int targetSlot, switchu::widgets::WidgetSize 
     const std::string assetRef = std::string(kPinRefPrefix) + key + ".jpg";
     saveSpotifyPin(assetRef, pin);
     requestSpotifyPinPicture(assetRef, pin, false);
+    return assetRef;
+}
+
+void WiiUMenuApp::createSpotifyPin(int targetSlot, switchu::widgets::WidgetSize size,
+                                   const SpotifyPin& pin) {
+    const std::string assetRef = prepareSpotifyPin(pin);
     DebugLog::log("[pin] created %s '%s'", pin.uri.c_str(), pin.name.c_str());
     createWidget(targetSlot, switchu::widgets::WidgetType::ImagePin, size, assetRef);
+}
+
+void WiiUMenuApp::changeSpotifyPin(std::uint32_t widgetId, const SpotifyPin& pin) {
+    m_contextMenu->hide();
+    auto* widget = m_widgetStore.find(widgetId);
+    if (!widget) return;
+    widget->assetRef = prepareSpotifyPin(pin);
+    if (!saveWidgetsOrReport("pin change")) return;
+    DebugLog::log("[pin] widget %u now %s '%s'", static_cast<unsigned>(widgetId),
+                  pin.uri.c_str(), pin.name.c_str());
+    applyDisplayModel(buildRootFolderModel(),
+                      switchu::widgets::widgetTitleId(widgetId), false);
 }
 
 void WiiUMenuApp::requestSpotifyPinPicture(const std::string& assetRef, const SpotifyPin& pin,
@@ -824,6 +874,13 @@ void WiiUMenuApp::playPlaylistShelf() {
     }
     if (shelf.step != PlaylistShelf::Step::Idle) return;
     if (!spotifySource()) setMusicSource(true);
+    const auto at = static_cast<std::size_t>(shelf.index);
+    if (at < shelf.uris.size() && !shelf.uris[at].empty()) {
+        pauseLocalForSpotify();
+        m_switify.playUri(shelf.uris[at], shelf.names[at]);
+        DebugLog::log("[playlists] play '%s' by its link", shelf.names[at].c_str());
+        return;
+    }
     shelf.target = shelf.names[static_cast<std::size_t>(shelf.index)];
     shelf.step = PlaylistShelf::Step::OpeningLibrary;
     shelf.waited = 0.f;
@@ -879,7 +936,7 @@ void WiiUMenuApp::pollPlaylistShelf() {
         case PlaylistShelf::Step::Listing:
         case PlaylistShelf::Step::OpeningLibrary: {
             if (!spotifyLibraryList(page)) return;
-            std::vector<std::string> names, details;
+            std::vector<std::string> names, details, uris;
             int found = -1;
             for (std::size_t i = 0; i < page.items.size(); ++i) {
                 const auto& item = page.items[i];
@@ -887,12 +944,14 @@ void WiiUMenuApp::pollPlaylistShelf() {
                 if (item.name == shelf.target) found = static_cast<int>(i);
                 names.push_back(item.name);
                 details.push_back(item.detail.empty() ? item.subtitle : item.detail);
+                uris.push_back(item.uri);
             }
             // Keep the one on show where it was, if the library moved.
             const std::string shown = shelf.names.empty()
                 ? std::string() : shelf.names[static_cast<std::size_t>(shelf.index)];
             shelf.names = std::move(names);
             shelf.details = std::move(details);
+            shelf.uris = std::move(uris);
             shelf.index = 0;
             for (std::size_t i = 0; i < shelf.names.size(); ++i)
                 if (shelf.names[i] == shown) shelf.index = static_cast<int>(i);

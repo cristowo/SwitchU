@@ -48,6 +48,10 @@ void GpuDevice::waitIdle() {
     // No-op for SDL2 — rendering is synchronous
 }
 
+void GpuDevice::setSwapInterval(uint32_t interval) {
+    m_swapInterval = interval; // the desktop build paces itself
+}
+
 bool GpuDevice::downloadFramebufferRgba(std::vector<uint8_t>& outRgba,
                                         int& outW, int& outH,
                                         bool halfRes) {

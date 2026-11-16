@@ -797,14 +797,15 @@ bool WiiUMenuApp::saveLeaveFrame(nxui::Renderer& ren) {
     // clears it when HOME is interactive again.
     if (!leaveSplashActive())
         endForcedCursorTeleport();
-    if (!LeaveFrameCache::save(session, rgba.data(), width, height)) {
-        DebugLog::log("[leave] cache write failed");
-        return false;
-    }
-
-    DebugLog::log("[leave] saved %dx%d page=%d folder=%u focus=%016lX",
-                  width, height, session.page, session.openFolderId,
-                  static_cast<unsigned long>(session.focusTitleId));
+    m_threadPool.submit([session, width, height, rgba = std::move(rgba)]() {
+        if (!LeaveFrameCache::save(session, rgba.data(), width, height)) {
+            DebugLog::log("[leave] cache write failed");
+            return;
+        }
+        DebugLog::log("[leave] saved %dx%d page=%d folder=%u focus=%016lX",
+                      width, height, session.page, session.openFolderId,
+                      static_cast<unsigned long>(session.focusTitleId));
+    }, true);
     return true;
 }
 
@@ -1037,8 +1038,7 @@ void WiiUMenuApp::loadStartupData() {
     normalizeWidgetPlacements();
     if (m_widgetStore.recentActivity().titleId != 0) {
         refreshRecentActivityDuration();
-        if (!m_widgetStore.save(false))
-            DebugLog::log("[widgets] recent activity duration could not be saved");
+        m_threadPool.submit(m_widgetStore.saveTask());
     }
     loadCustomNames();
     m_lockPasswordSet = switchu::lockpw::length() > 0;
@@ -4307,12 +4307,17 @@ void WiiUMenuApp::showWidgetOptionsMenu(std::uint32_t widgetId, int slot,
         [this, widgetId]() { removeWidget(widgetId); }});
     const bool pinned = widget->type == switchu::widgets::WidgetType::ImagePin
         && isSpotifyPinRef(widget->assetRef);
-    if (pinned)
+    if (pinned) {
         items.insert(items.begin(), {i18n.tr("widget.play_playlist", "Play"),
             [this, widgetId]() {
                 m_contextMenu->hide();
                 playSpotifyPin(widgetId);
             }});
+        items.insert(items.begin() + 1, {i18n.tr("widget.pin_change", "Change playlist"),
+            [this, widgetId, anchor]() {
+                startSpotifyPinPicker(0, anchor, {}, widgetId);
+            }});
+    }
     m_contextMenu->show(anchor,
                         pinned ? i18n.tr("widget.spotify_pin", "Spotify playlist")
                                : widgetTypeLabel(widget->type),
@@ -5685,7 +5690,7 @@ void WiiUMenuApp::resumeSuspendedApplication(std::uint64_t titleId,
             m_config.save();
             m_widgetStore.recordLaunch(titleId, launchTitle,
                 static_cast<std::int64_t>(std::time(nullptr)));
-            m_widgetStore.save(false);
+            m_threadPool.submit(m_widgetStore.saveTask(), true);
             m_launcher.resumeApplication();
         });
     }, titleId);
@@ -5812,7 +5817,7 @@ void WiiUMenuApp::activateApplication(GlossyIcon* source, AppEntry* entry,
                     m_config.save();
                     m_widgetStore.recordLaunch(id, launchTitle,
                         static_cast<std::int64_t>(std::time(nullptr)));
-                    m_widgetStore.save(false);
+                    m_threadPool.submit(m_widgetStore.saveTask(), true);
                     m_launcher.launchApplication(id, selectedUid);
                 }, {}, posterTile);
         }, titleId);
@@ -8607,7 +8612,9 @@ void WiiUMenuApp::installFrameLog() {
         return;
     std::fclose(flag);
     DebugLog::log("[frame] slow-frame log enabled");
-    constexpr float kSlowFrameMs = 22.f;       // A missed 60 Hz vsync.
+    // A missed 60 Hz vsync, by the frame's own work: the wait for the
+    // screen (a whole 33 ms at the idle half rate) is pacing, not a hitch.
+    constexpr float kSlowFrameMs = 16.f;
     constexpr float kMinSecondsBetweenLines = 0.25f; // The log must not cause hitches.
     constexpr float kSummarySeconds = 10.f;
     app().setFrameObserver([frames = 0u, slow = 0u, worst = 0.f, sinceSummary = 0.f,
@@ -8617,9 +8624,10 @@ void WiiUMenuApp::installFrameLog() {
         sinceSummary += seconds;
         sinceLine += seconds;
         ++frames;
-        if (t.totalMs > kSlowFrameMs) {
+        const float workMs = t.totalMs - t.acquireMs;
+        if (workMs > kSlowFrameMs) {
             ++slow;
-            worst = std::max(worst, t.totalMs);
+            worst = std::max(worst, workMs);
             if (sinceLine >= kMinSecondsBetweenLines) {
                 sinceLine = 0.f;
                 DebugLog::log("[frame] slow %.1fms input=%.1f update=%.1f acquire=%.1f "
@@ -9219,8 +9227,34 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         && !(m_userSelect && m_userSelect->isActive())) {
         // Lite: keep hero GPU freed for FT remount (~8 MiB). Do not spend it
         // on peeks; posters stay at ±2. After leave-light, heroes return.
-        if (!m_frameTapLightActive && !m_ftHeadroomHoldActive)
-            showFocusedSteamGridDbArtwork();
+        if (!m_frameTapLightActive && !m_ftHeadroomHoldActive) {
+            // It rebuilt the neighbour list, the logo area and the chrome every
+            // frame: again only when something it reads changes, plus once a
+            // second as a safety net. (After PoloNX 4d8128f; the hero coming up
+            // is ours, so the chrome follows it in the same frame.)
+            BackdropSyncKey key;
+            if (m_grid) {
+                key.focus = m_grid->focusManager().current();
+                key.focusIndex = m_grid->focusedGlobalIndex();
+            }
+            key.held = m_editMode ? m_editHeldTitleId : 0;
+            key.layout = static_cast<int>(presentationLayoutMode());
+            key.modelCount = m_model.count();
+            key.edit = m_editMode;
+            key.deferPreload = m_deferBackdropPreloadSec > 0.f;
+            key.allowed = steamGridDbArtworkAllowedHere();
+            key.heroShown = m_steamGridDbBackdrop && m_steamGridDbBackdrop->hasDisplayedHero();
+            m_backdropSyncSec += dt;
+            if (!m_backdropSyncValid || !(key == m_lastBackdropSync)
+                || m_backdropSyncSec >= 1.f) {
+                m_lastBackdropSync = key;
+                m_backdropSyncValid = true;
+                m_backdropSyncSec = 0.f;
+                showFocusedSteamGridDbArtwork();
+            }
+        } else {
+            m_backdropSyncValid = false;
+        }
         // Dynamic-line focus can move without a global focus callback — warm
         // folder peeks from the grid's source of truth the same way.
         if (m_grid && preferSingleRowPosters()

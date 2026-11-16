@@ -687,6 +687,7 @@
     "playlists_header": "Spotify · Your playlists",
     "playlists_empty": "No playlists found",
     "spotify_pin": "Spotify playlist",
+    "pin_change": "Change playlist",
     "pin_choose": "Choose playlist",
     "pin_not_ready_title": "Spotify is not ready",
     "pin_not_ready_desc": "Start Spotify first, from the music widget or Quick Settings, then add the playlist.",

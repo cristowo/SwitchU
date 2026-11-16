@@ -6,7 +6,9 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <filesystem>
+#include <mutex>
 #include <fstream>
 #include <system_error>
 
@@ -87,12 +89,24 @@ bool WidgetStore::load() {
     return true;
 }
 
-bool WidgetStore::save(bool durable) const {
-    std::error_code ec;
-    std::filesystem::create_directories("sdmc:/config/SwitchU/widgets", ec);
-    ec.clear();
-    std::filesystem::create_directories(kAssetRoot, ec);
+namespace {
+std::atomic<std::uint64_t> g_saveSequence{0};
+std::mutex g_writeMutex;
+std::uint64_t g_writtenSequence = 0; // under g_writeMutex
+} // namespace
 
+bool WidgetStore::save(bool durable) const {
+    return write(serialize(), durable, m_widgets.size(), ++g_saveSequence);
+}
+
+std::function<void()> WidgetStore::saveTask() const {
+    return [text = serialize(), count = m_widgets.size(), sequence = ++g_saveSequence]() {
+        if (!write(text, false, count, sequence))
+            DebugLog::log("[widgets] recent activity could not be saved");
+    };
+}
+
+std::string WidgetStore::serialize() const {
     nlohmann::json root;
     root["version"] = 1;
     root["widgets"] = nlohmann::json::array();
@@ -115,10 +129,25 @@ bool WidgetStore::save(bool durable) const {
         {"totalSeconds", m_recent.totalSeconds},
     };
 
+    return root.dump(2) + "\n";
+}
+
+bool WidgetStore::write(const std::string& text, bool durable, std::size_t count,
+                        std::uint64_t sequence) {
+    std::lock_guard lock(g_writeMutex);
+    if (sequence < g_writtenSequence)
+        return true; // a newer one is already on the SD
+    g_writtenSequence = sequence;
+
+    std::error_code ec;
+    std::filesystem::create_directories("sdmc:/config/SwitchU/widgets", ec);
+    ec.clear();
+    std::filesystem::create_directories(kAssetRoot, ec);
+    ec.clear();
     {
         std::ofstream file(kTempPath, std::ios::trunc);
         if (!file.is_open()) return false;
-        file << root.dump(2) << '\n';
+        file << text;
         file.flush();
         if (!file.good()) return false;
     }
@@ -157,7 +186,7 @@ bool WidgetStore::save(bool durable) const {
         if (durable)
             fsdevCommitDevice("sdmc");
     }
-    DebugLog::log("[widgets] saved count=%d", static_cast<int>(m_widgets.size()));
+    DebugLog::log("[widgets] saved count=%d", static_cast<int>(count));
     return true;
 }
 

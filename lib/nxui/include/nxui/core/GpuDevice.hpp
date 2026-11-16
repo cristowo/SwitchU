@@ -74,6 +74,10 @@ public:
     void endFrame();
     void waitIdle();
 
+    /// Present every `interval` vblanks (1 = 60 Hz, 2 = a steady 30 Hz for an
+    /// idle UI). Free when unchanged; a rebuilt swapchain starts again at 1.
+    void setSwapInterval(uint32_t interval);
+
     /// Rebuild the deko3d swapchain after a console sleep. The vi layer's
     /// buffer queue goes stale across sleep and PresentQueue::acquireImage()
     /// blocks forever; dropping and re-creating the swapchain re-establishes it
@@ -203,6 +207,7 @@ public:
 #endif
 
 private:
+    uint32_t m_swapInterval = 1;
 #ifdef NXUI_BACKEND_DEKO3D
     void createFramebuffers();
     void createDepthStencil();
